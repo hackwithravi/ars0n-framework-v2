@@ -14,3 +14,7 @@ body {
   font-family: 'Quantico', sans-serif !important;
 }
 
+.custom-input:focus {
+  border-color: red !important;
+  box-shadow: 0 0 0 0.25rem rgba(255, 0, 0, 0.25) !important;
+}
