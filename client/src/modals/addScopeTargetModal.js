@@ -1,6 +1,6 @@
 import { Modal, Button, Form, Card, Row, Col } from 'react-bootstrap';
 
-function AddScopeTargetModal({ show, handleClose, selections, handleSelect, handleSubmit }) {
+function AddScopeTargetModal({ show, handleClose, selections, handleSelect, handleSubmit, errorMessage }) {
   return (
     <Modal
       show={show}
@@ -19,7 +19,12 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
           style={{ width: '100px', height: '100px', marginBottom: '10px' }}
           centered
         />
-        <Modal.Title className="w-100 text-center text-secondary-emphasis">Ars0n Framework v2</Modal.Title>
+        {errorMessage && (
+          <p className="text-danger m-0" style={{ fontSize: '0.9rem' }}>
+            {errorMessage}
+          </p>
+        )}
+        <Modal.Title className="w-100 text-center text-secondary-emphasis">Ars0n Framework v2 <span style={{ fontSize: '0.9rem' }}>beta</span></Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Row>

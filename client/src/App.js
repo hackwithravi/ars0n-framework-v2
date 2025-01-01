@@ -8,18 +8,23 @@ function App() {
     mode: '',
     inputText: '',
   });
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleClose = () => setShowModal(false);
+  const handleClose = () => {
+    setShowModal(false);
+    setErrorMessage(''); 
+  };
 
   const handleSelect = (key, value) => {
     setSelections((prev) => ({ ...prev, [key]: value }));
+    setErrorMessage(''); 
   };
 
   const handleSubmit = () => {
     if (selections.type && selections.mode && selections.inputText) {
       setShowModal(false);
     } else {
-      alert('Please complete all fields.');
+      setErrorMessage('You forgot something...');
     }
   };
 
@@ -31,6 +36,7 @@ function App() {
         selections={selections}
         handleSelect={handleSelect}
         handleSubmit={handleSubmit}
+        errorMessage={errorMessage} 
       />
 
       {!showModal && (
