@@ -1,6 +1,39 @@
 import { Modal, Button, Form, Card, Row, Col } from 'react-bootstrap';
+import { useEffect } from 'react';
 
-function AddScopeTargetModal({ show, handleClose, selections, handleSelect, handleSubmit, errorMessage }) {
+function AddScopeTargetModal({ show, handleClose, selections, handleSelect, handleFormSubmit, errorMessage }) {
+  useEffect(() => {
+    if (show) {
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    } else {
+      document.body.style.paddingRight = '';
+    }
+
+    return () => {
+      document.body.style.paddingRight = '';
+    };
+  }, [show]);
+
+  const getPlaceholder = () => {
+    switch (selections.type) {
+      case 'Company':
+        return 'Example: Google';
+      case 'Wildcard':
+        return 'Example: *.google.com';
+      case 'URL':
+        return 'Example: https://hackme.google.com';
+      default:
+        return 'Google, *.google.com, https://hackme.google.com';
+    }
+  };
+
+  const handleSubmit = () => {
+    if (handleFormSubmit && typeof handleFormSubmit === 'function') {
+      handleFormSubmit();
+    }
+  };
+
   return (
     <Modal
       show={show}
@@ -19,12 +52,16 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
           style={{ width: '100px', height: '100px', marginBottom: '10px' }}
           centered
         />
-        {errorMessage && (
-          <p className="text-danger m-0" style={{ fontSize: '0.9rem' }}>
-            {errorMessage}
-          </p>
-        )}
-        <Modal.Title className="w-100 text-center text-secondary-emphasis">Ars0n Framework v2 <span style={{ fontSize: '0.9rem' }}>beta</span></Modal.Title>
+        <div style={{ minHeight: '24px' }}>
+          {errorMessage && (
+            <p className="text-danger m-0" style={{ fontSize: '0.9rem' }}>
+              {errorMessage}
+            </p>
+          )}
+        </div>
+        <Modal.Title className="w-100 text-center text-secondary-emphasis">
+          Ars0n Framework v2 <span style={{ fontSize: '0.7rem' }}>beta</span>
+        </Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Row>
@@ -75,9 +112,15 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
         <Form.Control
           type="text"
           className="custom-input"
-          placeholder="Google, *.google.com, https://hackme.google.com"
+          placeholder={getPlaceholder()}
           value={selections.inputText}
           onChange={(e) => handleSelect('inputText', e.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              handleFormSubmit();
+            }
+          }}
         />
       </Modal.Body>
       <Modal.Footer>
@@ -90,3 +133,4 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
 }
 
 export default AddScopeTargetModal;
+

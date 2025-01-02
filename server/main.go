@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RequestPayload struct {
@@ -24,16 +27,16 @@ type ResponsePayload struct {
 }
 
 var (
-	dbConn   *pgx.Conn
+	dbPool   *pgxpool.Pool
 	enumType = map[string]bool{
-		"company":  true,
-		"wildcard": true,
-		"url":      true,
+		"Company":  true,
+		"Wildcard": true,
+		"URL":      true,
 	}
 	enumMode = map[string]bool{
-		"manual":    true,
-		"automated": true,
-		"hybrid":    true,
+		"Guided":    true,
+		"Automated": true,
+		"Hybrid":    true,
 	}
 )
 
@@ -44,29 +47,52 @@ func main() {
 	}
 
 	var err error
-	dbConn, err = pgx.Connect(context.Background(), connStr)
-	if err != nil {
-		log.Fatalf("Error connecting to the database: %v", err)
+	for i := 0; i < 10; i++ {
+		dbPool, err = pgxpool.New(context.Background(), connStr)
+		if err == nil {
+			err = dbPool.Ping(context.Background())
+		}
+		if err == nil {
+			fmt.Println("Connected to the database successfully!")
+			break
+		}
+		log.Printf("Failed to connect to the database: %v. Retrying in 5 seconds...", err)
+		time.Sleep(5 * time.Second)
 	}
-	defer dbConn.Close(context.Background())
+	if err != nil {
+		log.Fatalf("Could not connect to the database: %v", err)
+	}
+	defer dbPool.Close()
 
 	createTable()
 
-	http.HandleFunc("/scopetarget/add", createScopeTarget)
-	http.HandleFunc("/scopetarget/read", readScopeTarget)
-	http.HandleFunc("/scopetarget/update", updateScopeTarget)
-	http.HandleFunc("/scopetarget/delete", deleteScopeTarget)
+	r := mux.NewRouter()
+	r.HandleFunc("/scopetarget/add", createScopeTarget).Methods("POST")
+	r.HandleFunc("/scopetarget/read", readScopeTarget).Methods("GET")
+	r.HandleFunc("/scopetarget/delete/{id}", deleteScopeTarget).Methods("DELETE")
+
+	handlerWithCORS := corsMiddleware(r)
 
 	log.Println("API server started on :8080")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", handlerWithCORS)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func createScopeTarget(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST requests are allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var payload RequestPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -83,7 +109,7 @@ func createScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `INSERT INTO requests (type, mode, scope_target) VALUES ($1, $2, $3)`
-	_, err := dbConn.Exec(context.Background(), query, payload.Type, payload.Mode, payload.ScopeTarget)
+	_, err := dbPool.Exec(context.Background(), query, payload.Type, payload.Mode, payload.ScopeTarget)
 	if err != nil {
 		log.Printf("Error inserting into database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -95,12 +121,7 @@ func createScopeTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func readScopeTarget(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET requests are allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	rows, err := dbConn.Query(context.Background(), `SELECT id, type, mode, scope_target FROM requests`)
+	rows, err := dbPool.Query(context.Background(), `SELECT id, type, mode, scope_target FROM requests`)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -122,60 +143,16 @@ func readScopeTarget(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
-func updateScopeTarget(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "Only PUT requests are allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		ID          int    `json:"id"`
-		Type        string `json:"type"`
-		Mode        string `json:"mode"`
-		ScopeTarget string `json:"scope_target"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if !enumType[payload.Type] {
-		http.Error(w, "Invalid type value", http.StatusBadRequest)
-		return
-	}
-	if !enumMode[payload.Mode] {
-		http.Error(w, "Invalid mode value", http.StatusBadRequest)
-		return
-	}
-
-	query := `UPDATE requests SET type = $1, mode = $2, scope_target = $3 WHERE id = $4`
-	_, err := dbConn.Exec(context.Background(), query, payload.Type, payload.Mode, payload.ScopeTarget, payload.ID)
-	if err != nil {
-		log.Printf("Error updating database: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Request updated successfully"})
-}
-
 func deleteScopeTarget(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Only DELETE requests are allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		ID int `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		http.Error(w, "ID is required in the path", http.StatusBadRequest)
 		return
 	}
 
 	query := `DELETE FROM requests WHERE id = $1`
-	_, err := dbConn.Exec(context.Background(), query, payload.ID)
+	_, err := dbPool.Exec(context.Background(), query, id)
 	if err != nil {
 		log.Printf("Error deleting from database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -194,7 +171,7 @@ func createTable() {
 		scope_target TEXT NOT NULL
 	)`
 
-	_, err := dbConn.Exec(context.Background(), query)
+	_, err := dbPool.Exec(context.Background(), query)
 	if err != nil {
 		log.Fatalf("Error creating table: %v", err)
 	}
