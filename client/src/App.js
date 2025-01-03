@@ -1,19 +1,32 @@
 import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
+import { Container, Row, Col, Button, ListGroup, Alert, Fade, Modal, Card } from 'react-bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
 
 function App() {
   const [showModal, setShowModal] = useState(false);
+  const [showActiveModal, setShowActiveModal] = useState(false);
   const [selections, setSelections] = useState({
     type: '',
     mode: '',
     inputText: '',
   });
   const [scopeTargets, setScopeTargets] = useState([]);
+  const [activeTarget, setActiveTarget] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [fadeIn, setFadeIn] = useState(false);
 
   const handleClose = () => {
     setShowModal(false);
     setErrorMessage('');
+  };
+
+  const handleActiveModalClose = () => {
+    setShowActiveModal(false);
+  };
+
+  const handleActiveModalOpen = () => {
+    setShowActiveModal(true);
   };
 
   const handleOpen = () => {
@@ -92,17 +105,24 @@ function App() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    if (!activeTarget) return;
+
     try {
-      const response = await fetch(`${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/delete/${id}`, {
+      const response = await fetch(`${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/delete/${activeTarget.id}`, {
         method: 'DELETE',
       });
+
       if (!response.ok) {
         throw new Error('Failed to delete scope target');
       }
+
       setScopeTargets((prev) => {
-        const updatedTargets = prev.filter((target) => target.id !== id);
-        if (updatedTargets.length === 0) {
+        const updatedTargets = prev.filter((target) => target.id !== activeTarget.id);
+        const newActiveTarget = updatedTargets.length > 0 ? updatedTargets[0] : null;
+        setActiveTarget(newActiveTarget);
+        if (!newActiveTarget && showActiveModal) {
+          setShowActiveModal(false);
           setShowModal(true);
         }
         return updatedTargets;
@@ -120,7 +140,10 @@ function App() {
       }
       const data = await response.json();
       setScopeTargets(data || []);
-      if (!data || data.length === 0) {
+      setFadeIn(true);
+      if (data && data.length > 0) {
+        setActiveTarget(data[0]);
+      } else {
         setShowModal(true);
       }
     } catch (error) {
@@ -129,12 +152,16 @@ function App() {
     }
   };
 
+  const handleActiveSelect = (target) => {
+    setActiveTarget(target);
+  };
+
   useEffect(() => {
     fetchScopeTargets();
   }, []);
 
   return (
-    <div className="App" style={{ padding: '20px' }}>
+    <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
       <AddScopeTargetModal
         show={showModal}
         handleClose={handleClose}
@@ -144,47 +171,75 @@ function App() {
         errorMessage={errorMessage}
       />
 
-      {!showModal && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3>Scope Targets</h3>
-            <button
-              onClick={handleOpen}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: '45px',
-                cursor: 'pointer',
-                padding: '5px',
-                color: '#8B0000',
-              }}
-              onMouseEnter={(e) => (e.target.style.color = '#FF0000')}
-              onMouseLeave={(e) => (e.target.style.color = '#8B0000')}
-              aria-label="Add Scope Target"
-            >
-              +
-            </button>
-          </div>
-
-          <ul>
-            {Array.isArray(scopeTargets) && scopeTargets.map((target) => (
-              <li key={target.id} style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ flexGrow: 1 }}>
-                  <strong>{target.scope_target}</strong> - {target.type} ({target.mode})
-                </span>
-                <button
-                  onClick={() => handleDelete(target.id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  🗑️
-                </button>
-              </li>
+      <Modal data-bs-theme="dark" show={showActiveModal} onHide={handleActiveModalClose} centered>
+        <Modal.Header closeButton>
+          <Modal.Title className="text-danger">Select Active Scope Target</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <ListGroup>
+            {scopeTargets.map((target) => (
+              <ListGroup.Item
+                key={target.id}
+                action
+                onClick={() => handleActiveSelect(target)}
+                className={activeTarget?.id === target.id ? 'bg-danger text-white' : ''}
+              >
+                <span>{target.scope_target}</span>
+              </ListGroup.Item>
             ))}
-          </ul>
-        </div>
+          </ListGroup>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="danger" onClick={handleDelete} className="me-auto">
+            Delete
+          </Button>
+          <Button variant="danger" onClick={handleActiveModalClose}>
+            Set Active
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {!showModal && (
+        <Fade in={fadeIn}>
+          <div>
+            <Row className="mb-3">
+              <Col>
+                <h3 className="text-danger">Scope Targets</h3>
+              </Col>
+              <Col className="text-end">
+                <Button variant="outline-danger" onClick={handleOpen}>
+                  Add Scope Target
+                </Button>
+                <Button variant="outline-danger" onClick={handleActiveModalOpen} className="ms-2">
+                  Select Active Target
+                </Button>
+              </Col>
+            </Row>
+            <Row className="mb-3">
+              <Col>
+                {activeTarget && (
+                  <Card variant="outline-danger">
+                    <Card.Body>
+                      <Card.Text className="d-flex justify-content-between text-danger">
+                        <span>Active Target: <strong>{activeTarget.scope_target}</strong></span>
+                        <span>{activeTarget.type}  --  {activeTarget.mode}</span>
+                      </Card.Text>
+                    </Card.Body>
+                  </Card>
+                )}
+              </Col>
+            </Row>
+            {scopeTargets.length === 0 && (
+              <Alert variant="danger" className="mt-3">
+                No scope targets available. Please add a new target.
+              </Alert>
+            )}
+          </div>
+        </Fade>
       )}
-    </div>
+    </Container>
   );
 }
 
 export default App;
+
