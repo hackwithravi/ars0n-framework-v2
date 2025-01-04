@@ -3,7 +3,15 @@ Ars0n Framework v2
 </h1>
 
 <p align="center">
-    <img src="screenshot.png" alt="Screenshot of Homepage" width="500">
+    <img src="screenshot1.png" alt="Screenshot of Framework" width="800">
+</p>
+
+<p align="center">
+    <img src="screenshot2.png" alt="Screenshot of Framework" width="800">
+</p>
+
+<p align="center">
+    <img src="screenshot3.png" alt="Screenshot of Framework" width="500">
 </p>
 
 <p align="center">
