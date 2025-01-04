@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
-import { Container, Row, Col, Button, ListGroup, Alert, Fade, Modal, Card } from 'react-bootstrap';
+import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
+import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
+import ManageScopeTargets from './components/manageScopeTargets.js';
+import { Container, Fade } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
@@ -166,22 +169,7 @@ function App() {
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
-      <Row className="align-items-center mb-3">
-        <Col xs="auto">
-          <img src="/images/logo.avif" alt="Logo" style={{ height: '60px' }} />
-        </Col>
-        <Col xs="auto" className="ms-auto d-flex justify-content-end">
-          <Button variant="link" className="text-white p-1">
-            <i className="bi bi-question-circle" style={{ fontSize: '1.5rem' }}></i>
-          </Button>
-          <Button variant="link" className="text-white p-1">
-            <i className="bi bi-person" style={{ fontSize: '1.5rem' }}></i>
-          </Button>
-          <Button variant="link" className="text-white p-1">
-            <i className="bi bi-gear" style={{ fontSize: '1.5rem' }}></i>
-          </Button>
-        </Col>
-      </Row>
+      <Ars0nFrameworkHeader />
 
       <AddScopeTargetModal
         show={showModal}
@@ -192,75 +180,25 @@ function App() {
         errorMessage={errorMessage}
       />
 
-      <Modal data-bs-theme="dark" show={showActiveModal} onHide={handleActiveModalClose} centered>
-        <Modal.Header closeButton>
-          <Modal.Title className="text-danger">Select Active Scope Target</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <ListGroup>
-            {scopeTargets.map((target) => (
-              <ListGroup.Item
-                key={target.id}
-                action
-                onClick={() => handleActiveSelect(target)}
-                className={activeTarget?.id === target.id ? 'bg-danger text-white' : ''}
-              >
-                <span>{target.scope_target}</span>
-              </ListGroup.Item>
-            ))}
-          </ListGroup>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="danger" onClick={handleDelete} className="me-auto">
-            Delete
-          </Button>
-          <Button variant="danger" onClick={handleActiveModalClose}>
-            Set Active
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      <SelectActiveScopeTargetModal
+        showActiveModal={showActiveModal}
+        handleActiveModalClose={handleActiveModalClose}
+        scopeTargets={scopeTargets}
+        activeTarget={activeTarget}
+        handleActiveSelect={handleActiveSelect}
+        handleDelete={handleDelete}
+      />
 
-      {!showModal && (
-        <Fade in={fadeIn}>
-          <div>
-            <Row className="mb-3">
-              <Col>
-                <h3 className="text-secondary">Scope Targets</h3>
-              </Col>
-              <Col className="text-end">
-                <Button variant="outline-danger" onClick={handleOpen}>
-                  Add Scope Target
-                </Button>
-                <Button variant="outline-danger" onClick={handleActiveModalOpen} className="ms-2">
-                  Select Active Target
-                </Button>
-              </Col>
-            </Row>
-            <Row className="mb-3">
-              <Col>
-                {activeTarget && (
-                  <Card variant="outline-danger">
-                    <Card.Body>
-                      <Card.Text className="d-flex justify-content-between text-danger">
-                        <span style={{ fontSize: '22px'}}>Active Target: <strong>{activeTarget.scope_target}</strong></span>
-                        <span>
-                          <img src={getTypeIcon(activeTarget.type)} alt={activeTarget.type} style={{ width: '30px', marginRight: '25px' }} /> 
-                          <img src={getModeIcon(activeTarget.mode)} alt={activeTarget.mode} style={{ width: '30px' }} />
-                        </span>
-                      </Card.Text>
-                    </Card.Body>
-                  </Card>
-                )}
-              </Col>
-            </Row>
-            {scopeTargets.length === 0 && (
-              <Alert variant="danger" className="mt-3">
-                No scope targets available. Please add a new target.
-              </Alert>
-            )}
-          </div>
-        </Fade>
-      )}
+      <Fade in={fadeIn}>
+        <ManageScopeTargets
+          handleOpen={handleOpen}
+          handleActiveModalOpen={handleActiveModalOpen}
+          activeTarget={activeTarget}
+          scopeTargets={scopeTargets}
+          getTypeIcon={getTypeIcon}
+          getModeIcon={getModeIcon}
+        />
+      </Fade>
     </Container>
   );
 }
