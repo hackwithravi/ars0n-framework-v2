@@ -241,7 +241,6 @@ function App() {
             {(activeTarget.type === 'Wildcard' || activeTarget.type === 'Company') && (
               <div className="mb-4">
                 <h3 className="text-danger mb-3">Wildcard</h3>
-                <p className="text-white">Test</p>
                 <Accordion data-bs-theme="dark" className="mb-3">
                   <Accordion.Item eventKey="0">
                     <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
@@ -296,6 +295,35 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Subdomain Scraping</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="row-cols-5 g-3 mb-4">
                   {[
                     { name: 'Sublist3r', link: 'https://github.com/aboul3la/Sublist3r' },
@@ -325,6 +353,35 @@ function App() {
                   ))}
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Brute-Force</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="justify-content-between mb-4">
                   {[
                     { name: 'ShuffleDNS', link: 'https://github.com/projectdiscovery/shuffledns' },
@@ -351,6 +408,35 @@ function App() {
                   ))}
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 1</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm">
@@ -397,13 +483,42 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">JavaScript/Link Discovery</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="justify-content-between mb-4">
                   {[
                     { name: 'GoSpider', link: 'https://github.com/jaeles-project/gospider' },
                     { name: 'Subdomainizer', link: 'https://github.com/nsonaniya2010/SubDomainizer' }
                   ].map((tool, index) => (
                     <Col md={6} className="mb-4" key={index}>
-                      <Card className="shadow-sm h-100 text-center" style={{ minHeight: '250px' }}>
+                      <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
                         <Card.Body className="d-flex flex-column">
                           <Card.Title className="text-danger mb-3">
                             <a href={tool.link} className="text-danger text-decoration-none">
@@ -423,6 +538,35 @@ function App() {
                   ))}
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 2</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm">
@@ -468,7 +612,36 @@ function App() {
                     </Card>
                   </Col>
                 </Row>
-                <h4 className="text-secondary mb-3 fs-3">DECISION POINT</h4>
+                <h4 className="text-secondary mb-3 fs-3 text-center">DECISION POINT</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm" style={{ minHeight: '250px' }}>
