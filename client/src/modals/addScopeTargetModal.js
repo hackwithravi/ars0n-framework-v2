@@ -1,5 +1,6 @@
 import { Modal, Button, Form, Card, Row, Col } from 'react-bootstrap';
 import { useEffect } from 'react';
+import 'bootstrap-icons/font/bootstrap-icons.css';
 
 function AddScopeTargetModal({ show, handleClose, selections, handleSelect, handleFormSubmit, errorMessage }) {
   useEffect(() => {
@@ -45,7 +46,7 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
       centered
       data-bs-theme="dark"
     >
-      <Modal.Header className="flex-column align-items-center">
+      <Modal.Header closeButton className="flex-column align-items-center">
         <img
           src="/images/logo.avif"
           alt="Logo"
@@ -133,4 +134,3 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
 }
 
 export default AddScopeTargetModal;
-
