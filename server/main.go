@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -26,19 +30,21 @@ type ResponsePayload struct {
 	ScopeTarget string `json:"scope_target"`
 }
 
-var (
-	dbPool   *pgxpool.Pool
-	enumType = map[string]bool{
-		"Company":  true,
-		"Wildcard": true,
-		"URL":      true,
-	}
-	enumMode = map[string]bool{
-		"Guided":    true,
-		"Automated": true,
-		"Hybrid":    true,
-	}
-)
+type AmassScanStatus struct {
+	ID        int            `json:"id"`
+	ScanID    string         `json:"scan_id"`
+	Domain    string         `json:"domain"`
+	Status    string         `json:"status"`
+	Result    sql.NullString `json:"result,omitempty"`
+	Error     sql.NullString `json:"error,omitempty"`
+	StdOut    sql.NullString `json:"stdout,omitempty"`
+	StdErr    sql.NullString `json:"stderr,omitempty"`
+	Command   sql.NullString `json:"command,omitempty"`
+	ExecTime  sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+}
+
+var dbPool *pgxpool.Pool
 
 func main() {
 	connStr := os.Getenv("DATABASE_URL")
@@ -64,12 +70,15 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	createTable()
+	createTables()
 
 	r := mux.NewRouter()
 	r.HandleFunc("/scopetarget/add", createScopeTarget).Methods("POST")
 	r.HandleFunc("/scopetarget/read", readScopeTarget).Methods("GET")
 	r.HandleFunc("/scopetarget/delete/{id}", deleteScopeTarget).Methods("DELETE")
+	r.HandleFunc("/scopetarget/{id}/scans/amass", getAmassScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/amass/run", runAmassScan).Methods("POST")
+	r.HandleFunc("/amass/{scanID}", getAmassScanStatus).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -92,19 +101,226 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func createTables() {
+	queries := []string{
+		`CREATE EXTENSION IF NOT EXISTS pgcrypto;`,
+		`CREATE TABLE IF NOT EXISTS requests (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			type VARCHAR(50) NOT NULL,
+			mode VARCHAR(50) NOT NULL,
+			scope_target TEXT NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS amass_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			request_id UUID REFERENCES requests(id) ON DELETE CASCADE
+		);`,
+	}
+
+	for _, query := range queries {
+		_, err := dbPool.Exec(context.Background(), query)
+		if err != nil {
+			log.Fatalf("Error creating table: %v", err)
+		}
+	}
+}
+
+func getAmassScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	scopeTargetID := mux.Vars(r)["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+              FROM amass_scans WHERE request_id = $1`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch scans for scope target ID %s: %v", scopeTargetID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan AmassScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":             scan.ID,
+			"scan_id":        scan.ScanID,
+			"domain":         scan.Domain,
+			"status":         scan.Status,
+			"result":         nullStringToString(scan.Result),
+			"error":          nullStringToString(scan.Error),
+			"stdout":         nullStringToString(scan.StdOut),
+			"stderr":         nullStringToString(scan.StdErr),
+			"command":        nullStringToString(scan.Command),
+			"execution_time": nullStringToString(scan.ExecTime),
+			"created_at":     scan.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(scans)
+}
+
+func runAmassScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM requests WHERE type = 'Wildcard' AND scope_target = $1`
+	var requestID int
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&requestID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO amass_scans (scan_id, domain, status, request_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", requestID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAmassScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAmassScan(scanID, domain string) {
+	startTime := time.Now()
+	cmd := exec.Command(
+		"docker", "run", "--rm",
+		"caffix/amass",
+		"enum", "-active", "-alts", "-brute", "-nocolor",
+		"-min-for-recursive", "2", "-timeout", "60",
+		"-d", domain,
+		"-r", "8.8.8.8", "1.1.1.1",
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	status := "success"
+	var result, errorMsg string
+	if err != nil {
+		status = "error"
+		errorMsg = err.Error()
+		log.Printf("[ERROR] Amass scan %s failed: %v\nStdout: %s\nStderr: %s\n", scanID, err, stdout.String(), stderr.String())
+	} else {
+		result = stdout.String()
+		log.Printf("[SUCCESS] Amass scan %s completed successfully.\nStdout: %s\nStderr: %s\n", scanID, stdout.String(), stderr.String())
+	}
+
+	updateQuery := `UPDATE amass_scans SET status = $1, result = $2, error = $3, stdout = $4, stderr = $5, command = $6, execution_time = $7 WHERE scan_id = $8`
+	_, dbErr := dbPool.Exec(context.Background(), updateQuery, status, result, errorMsg, stdout.String(), stderr.String(), cmd.String(), execTime, scanID)
+	if dbErr != nil {
+		log.Printf("[ERROR] Failed to update scan record: %v", dbErr)
+	}
+}
+
+func getAmassScanStatus(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scanID"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var scan AmassScanStatus
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at FROM amass_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+	)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch scan status: %v", err)
+		http.Error(w, "Scan not found.", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":             scan.ID,
+		"scan_id":        scan.ScanID,
+		"domain":         scan.Domain,
+		"status":         scan.Status,
+		"result":         nullStringToString(scan.Result),
+		"error":          nullStringToString(scan.Error),
+		"stdout":         nullStringToString(scan.StdOut),
+		"stderr":         nullStringToString(scan.StdErr),
+		"command":        nullStringToString(scan.Command),
+		"execution_time": nullStringToString(scan.ExecTime),
+		"created_at":     scan.CreatedAt.Format(time.RFC3339),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func nullStringToString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
 func createScopeTarget(w http.ResponseWriter, r *http.Request) {
 	var payload RequestPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if !enumType[payload.Type] {
-		http.Error(w, "Invalid type value", http.StatusBadRequest)
-		return
-	}
-	if !enumMode[payload.Mode] {
-		http.Error(w, "Invalid mode value", http.StatusBadRequest)
 		return
 	}
 
@@ -161,18 +377,4 @@ func deleteScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Request deleted successfully"})
-}
-
-func createTable() {
-	query := `CREATE TABLE IF NOT EXISTS requests (
-		id SERIAL PRIMARY KEY,
-		type VARCHAR(50) NOT NULL,
-		mode VARCHAR(50) NOT NULL,
-		scope_target TEXT NOT NULL
-	)`
-
-	_, err := dbPool.Exec(context.Background(), query)
-	if err != nil {
-		log.Fatalf("Error creating table: %v", err)
-	}
 }
