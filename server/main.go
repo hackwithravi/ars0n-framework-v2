@@ -24,14 +24,14 @@ type RequestPayload struct {
 }
 
 type ResponsePayload struct {
-	ID          int    `json:"id"`
+	ID          string `json:"id"`
 	Type        string `json:"type"`
 	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
 }
 
 type AmassScanStatus struct {
-	ID        int            `json:"id"`
+	ID        string         `json:"id"`
 	ScanID    string         `json:"scan_id"`
 	Domain    string         `json:"domain"`
 	Status    string         `json:"status"`
@@ -205,7 +205,7 @@ func runAmassScan(w http.ResponseWriter, r *http.Request) {
 	wildcardDomain := fmt.Sprintf("*.%s", domain)
 
 	query := `SELECT id FROM requests WHERE type = 'Wildcard' AND scope_target = $1`
-	var requestID int
+	var requestID string
 	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&requestID)
 	if err != nil {
 		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
@@ -356,6 +356,7 @@ func readScopeTarget(w http.ResponseWriter, r *http.Request) {
 		results = append(results, res)
 	}
 
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(results)
 }
 
