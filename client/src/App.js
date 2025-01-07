@@ -17,8 +17,94 @@ function App() {
   });
   const [scopeTargets, setScopeTargets] = useState([]);
   const [activeTarget, setActiveTarget] = useState(null);
+  const [amassScans, setAmassScans] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [fadeIn, setFadeIn] = useState(false);
+  const [mostRecentAmassScanStatus, setMostRecentAmassScanStatus] = useState(null);
+  const [mostRecentAmassScanId, setMostRecentAmassScanId] = useState(null);
+  const [mostRecentAmassScanTime, setMostRecentAmassScanTime] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [lastScanTriggerTime, setLastScanTriggerTime] = useState(Date.now());
+
+  const fetchAmassScans = async () => {
+    if (!activeTarget) return;
+
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${activeTarget.id}/scans/amass`
+      );
+      if (!response.ok) {
+        throw new Error('Failed to fetch Amass scans');
+      }
+      const data = await response.json();
+      setAmassScans(data || []);
+
+      if (!Array.isArray(data) || data.length === 0) {
+        setAmassScans([]); 
+        return null;
+      }
+
+      const mostRecentScan = data.reduce((latest, scan) => {
+        const scanDate = new Date(scan.created_at);
+        return scanDate > new Date(latest.created_at) ? scan : latest;
+      }, data[0]);
+
+      const scanDetailsResponse = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/amass/${mostRecentScan.scan_id}`
+      );
+      if (!scanDetailsResponse.ok) {
+        throw new Error('Failed to fetch Amass scan details');
+      }
+      const scanDetails = await scanDetailsResponse.json();
+      setMostRecentAmassScanStatus(scanDetails.status);
+      setMostRecentAmassScanId(scanDetails.scan_id)
+      setMostRecentAmassScanTime(scanDetails.execution_time)
+      return scanDetails.status;
+    } catch (error) {
+      console.error('Error fetching Amass scan details:', error);
+    }
+  };
+
+  const monitorScanStatus = async () => {
+    let status = await fetchAmassScans();
+    while (status === 'pending') {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      status = await fetchAmassScans();
+    }
+    setIsScanning(false);
+    setLastScanTriggerTime(Date.now()); 
+  };
+  
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const response = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/read`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch scope targets');
+        }
+        const data = await response.json();
+        setScopeTargets(data || []);
+        if (data && data.length > 0) {
+          setActiveTarget(data[0]);
+        } else {
+          setShowModal(true);
+        }
+      } catch (error) {
+        console.error('Error fetching scope targets:', error);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (activeTarget) {
+      fetchAmassScans();
+    }
+  }, [activeTarget, lastScanTriggerTime]);
+  
 
   const handleClose = () => {
     setShowModal(false);
@@ -153,21 +239,67 @@ function App() {
     }
   };
 
-  const handleActiveSelect = (target) => {
-    setActiveTarget(target);
-  };
-
   useEffect(() => {
     fetchScopeTargets();
   }, []);
+
+  useEffect(()=> {
+    monitorScanStatus();
+  }, [])
+
+  useEffect(() => {
+    if (activeTarget) {
+      fetchAmassScans();
+    }
+  }, [activeTarget, isScanning]);
+
+  const handleActiveSelect = (target) => {
+    setActiveTarget(target);
+  };
 
   const handleSelect = (key, value) => {
     setSelections((prev) => ({ ...prev, [key]: value }));
     setErrorMessage('');
   };
 
+  const initiateAmassScan = async () => {
+    if (!activeTarget) return;
+
+    let fqdn = activeTarget.scope_target;
+    if (activeTarget.type === 'Wildcard') {
+      fqdn = fqdn.replace(/^\*\./, '');
+    }
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/amass/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fqdn }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to initiate Amass scan');
+      }
+
+      setIsScanning(true);
+      monitorScanStatus();
+    } catch (error) {
+      console.error('Error initiating Amass scan:', error);
+    }
+  };
+
   const getTypeIcon = (type) => `/images/${type}.png`;
   const getModeIcon = (mode) => `/images/${mode}.png`;
+
+  const getLastScanDate = () => {
+    if (amassScans.length === 0) return 'No scans available';
+    const lastScan = amassScans.reduce((latest, scan) => {
+      const scanDate = new Date(scan.created_at);
+      return scanDate > new Date(latest.created_at) ? scan : latest;
+    }, { created_at: '1970-01-01T00:00:00Z' });
+    const parsedDate = new Date(lastScan.created_at);
+    return isNaN(parsedDate.getTime()) ? 'Invalid scan date' : parsedDate.toLocaleString();
+  };
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -273,22 +405,42 @@ function App() {
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm" style={{ minHeight: '250px' }}>
-                      <Card.Body className="d-flex flex-column justify-content-between text-center">
+                      <Card.Body className="d-flex flex-column justify-content-between">
                         <div>
-                          <Card.Title className="text-danger fs-3 mb-3">
+                          <Card.Title className="text-danger fs-3 mb-3 text-center">
                             <a href="https://github.com/OWASP/Amass" className="text-danger text-decoration-none">
-                              Amass
+                              Amass Enum
                             </a>
                           </Card.Title>
-                          <Card.Text className="text-white small fst-italic">
+                          <Card.Text className="text-white small fst-italic text-center">
                             A powerful subdomain enumeration and OSINT tool for in-depth reconnaissance.
+                          </Card.Text>
+                          <Card.Text className="text-white small">
+                            Last Scanned: {getLastScanDate()}
+                          </Card.Text>
+                          <Card.Text className="text-white small">
+                            Last Scan Status: {mostRecentAmassScanStatus}
+                          </Card.Text>
+                          <Card.Text className="text-white small">
+                            Scan Time: {mostRecentAmassScanTime}
+                          </Card.Text>
+                          <Card.Text className="text-white small">
+                            Scan ID: {mostRecentAmassScanId}
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">
-                          <Button variant="outline-danger" className="flex-fill">View Infrastructure Map</Button>
-                          <Button variant="outline-danger" className="flex-fill">View DNS Records</Button>
-                          <Button variant="outline-danger" className="flex-fill">View Subdomains</Button>
-                          <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>&nbsp;&nbsp;&nbsp;Raw Results&nbsp;&nbsp;&nbsp;</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>&nbsp;&nbsp;&nbsp;Scan History&nbsp;&nbsp;&nbsp;</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>Infrastructure Map</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>&nbsp;&nbsp;&nbsp;DNS Records&nbsp;&nbsp;&nbsp;</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>&nbsp;&nbsp;&nbsp;Subdomains&nbsp;&nbsp;&nbsp;</Button>
+                          <Button
+                            variant="outline-danger"
+                            onClick={initiateAmassScan}
+                            disabled={isScanning || mostRecentAmassScanStatus === "pending" ? true : false}
+                          >
+                            {isScanning || mostRecentAmassScanStatus === "pending" ? <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> : 'Scan ' + activeTarget.scope_target}
+                          </Button>
                         </div>
                       </Card.Body>
                     </Card>

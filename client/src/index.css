@@ -42,3 +42,13 @@ body {
 .accordion-button:focus:not(.collapsed) {
   box-shadow: 0 0 0 0.2rem rgba(255, 0, 0, 0.5); 
 }
+
+.blinking {
+  animation: blinker 2s linear infinite;
+}
+
+@keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
