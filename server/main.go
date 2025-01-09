@@ -10,12 +10,36 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type DNSRecord struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Record    string    `json:"record"`
+	Type      string    `json:"type"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type IPAddress struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Address   string    `json:"address"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Subdomain struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Subdomain string    `json:"subdomain"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 type RequestPayload struct {
 	Type        string `json:"type"`
@@ -79,6 +103,9 @@ func main() {
 	r.HandleFunc("/scopetarget/{id}/scans/amass", getAmassScansForScopeTarget).Methods("GET")
 	r.HandleFunc("/amass/run", runAmassScan).Methods("POST")
 	r.HandleFunc("/amass/{scanID}", getAmassScanStatus).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/dns", getDNSRecords).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/ip", getIPs).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/subdomain", getSubdomains).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -123,6 +150,25 @@ func createTables() {
 			execution_time TEXT,
 			created_at TIMESTAMP DEFAULT NOW(),
 			request_id UUID REFERENCES requests(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS dns_records (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			record TEXT NOT NULL,
+			record_type TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS ips (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			ip_address TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS subdomains (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			subdomain TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
 		);`,
 	}
 
@@ -259,12 +305,108 @@ func executeAmassScan(scanID, domain string) {
 	} else {
 		result = stdout.String()
 		log.Printf("[SUCCESS] Amass scan %s completed successfully.\nStdout: %s\nStderr: %s\n", scanID, stdout.String(), stderr.String())
+
+		parseAndStoreSubdomains(scanID, result)
+
+		lines := strings.Split(result, "\n")
+		dnsRecords := map[string][]string{
+			"arecord":     {},
+			"aaaarecord":  {},
+			"cnamerecord": {},
+			"mxrecord":    {},
+			"txtrecord":   {},
+			"node":        {},
+			"nsrecord":    {},
+			"srvrecord":   {},
+			"ptrrecord":   {},
+			"spfrecord":   {},
+			"soarecord":   {},
+		}
+		var ipv4Addresses []string
+
+		for _, line := range lines {
+			if strings.Contains(line, "a_record") && !strings.Contains(line, "aaaa_record") {
+				dnsRecords["arecord"] = append(dnsRecords["arecord"], line)
+				insertDNSRecord(scanID, line, "A")
+			}
+			if strings.Contains(line, "aaaa_record") {
+				dnsRecords["aaaarecord"] = append(dnsRecords["aaaarecord"], line)
+				insertDNSRecord(scanID, line, "AAAA")
+			}
+			if strings.Contains(line, "cname_record") {
+				dnsRecords["cnamerecord"] = append(dnsRecords["cnamerecord"], line)
+				insertDNSRecord(scanID, line, "CNAME")
+			}
+			if strings.Contains(line, "mx_record") {
+				dnsRecords["mxrecord"] = append(dnsRecords["mxrecord"], line)
+				insertDNSRecord(scanID, line, "MX")
+			}
+			if strings.Contains(line, "txt_record") {
+				dnsRecords["txtrecord"] = append(dnsRecords["txtrecord"], line)
+				insertDNSRecord(scanID, line, "TXT")
+			}
+			if strings.Contains(line, "node") {
+				dnsRecords["node"] = append(dnsRecords["node"], line)
+				insertDNSRecord(scanID, line, "Node")
+			}
+			if strings.Contains(line, "ns_record") {
+				dnsRecords["nsrecord"] = append(dnsRecords["nsrecord"], line)
+				insertDNSRecord(scanID, line, "NS")
+			}
+			if strings.Contains(line, "srv_record") {
+				dnsRecords["srvrecord"] = append(dnsRecords["srvrecord"], line)
+				insertDNSRecord(scanID, line, "SRV")
+			}
+			if strings.Contains(line, "ptr_record") {
+				dnsRecords["ptrrecord"] = append(dnsRecords["ptrrecord"], line)
+				insertDNSRecord(scanID, line, "PTR")
+			}
+			if strings.Contains(line, "spf_record") {
+				dnsRecords["spfrecord"] = append(dnsRecords["spfrecord"], line)
+				insertDNSRecord(scanID, line, "SPF")
+			}
+			if strings.Contains(line, "soa_record") {
+				dnsRecords["soarecord"] = append(dnsRecords["soarecord"], line)
+				insertDNSRecord(scanID, line, "SOA")
+			}
+			if strings.Contains(line, "ipv4_address") {
+				ipv4Addresses = append(ipv4Addresses, line)
+				insertIP(scanID, line)
+			}
+		}
+
+		log.Printf("DNS Records: %+v\n", dnsRecords)
+		log.Printf("IPv4 Addresses: %+v\n", ipv4Addresses)
 	}
 
 	updateQuery := `UPDATE amass_scans SET status = $1, result = $2, error = $3, stdout = $4, stderr = $5, command = $6, execution_time = $7 WHERE scan_id = $8`
 	_, dbErr := dbPool.Exec(context.Background(), updateQuery, status, result, errorMsg, stdout.String(), stderr.String(), cmd.String(), execTime, scanID)
 	if dbErr != nil {
 		log.Printf("[ERROR] Failed to update scan record: %v", dbErr)
+	}
+}
+
+func parseAndStoreSubdomains(scanID, result string) {
+	subdomainRegex := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
+	lines := strings.Split(result, "\n")
+	var subdomains []string
+
+	for _, line := range lines {
+		matches := subdomainRegex.FindAllString(line, -1)
+		for _, match := range matches {
+			subdomains = append(subdomains, match)
+			insertSubdomain(scanID, match)
+		}
+	}
+
+	log.Printf("[INFO] Parsed subdomains for scan %s: %v", scanID, subdomains)
+}
+
+func insertSubdomain(scanID, subdomain string) {
+	query := `INSERT INTO subdomains (scan_id, subdomain) VALUES ($1, $2)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, subdomain)
+	if err != nil {
+		log.Printf("[ERROR] Failed to insert subdomain %s for scan %s: %v", subdomain, scanID, err)
 	}
 }
 
@@ -382,4 +524,104 @@ func deleteScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Request deleted successfully"})
+}
+
+func insertDNSRecord(scanID, record, recordType string) {
+	query := `INSERT INTO dns_records (scan_id, record, record_type) VALUES ($1, $2, $3)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, record, recordType)
+	if err != nil {
+		log.Printf("Failed to insert DNS record: %v", err)
+	}
+}
+
+func insertIP(scanID, ip string) {
+	query := `INSERT INTO ips (scan_id, ip_address) VALUES ($1, $2)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, ip)
+	if err != nil {
+		log.Printf("Failed to insert IP address: %v", err)
+	}
+}
+
+func getDNSRecords(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT record FROM dns_records WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch DNS records for scan %s: %v", scanID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var records []string
+	for rows.Next() {
+		var record string
+		if err := rows.Scan(&record); err != nil {
+			log.Printf("[ERROR] Failed to scan DNS record row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		records = append(records, record)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(records)
+}
+
+func getIPs(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	query := `SELECT ip_address FROM ips WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		http.Error(w, "Failed to fetch IPs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			http.Error(w, "Error scanning IP", http.StatusInternalServerError)
+			return
+		}
+		ips = append(ips, ip)
+	}
+	json.NewEncoder(w).Encode(ips)
+}
+
+func getSubdomains(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT subdomain FROM subdomains WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch subdomains for scan %s: %v", scanID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var subdomains []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		subdomains = append(subdomains, subdomain)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(subdomains)
 }
