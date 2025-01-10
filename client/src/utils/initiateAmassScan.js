@@ -1,4 +1,4 @@
-export const initiateAmassScan = async (activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setLastScanTriggerTime, setMostRecentAmassScanStatus) => {
+export const initiateAmassScan = async (activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus) => {
     if (!activeTarget) return;
     let fqdn = activeTarget.scope_target;
     if (activeTarget.type === 'Wildcard') {
@@ -17,7 +17,7 @@ export const initiateAmassScan = async (activeTarget, monitorScanStatus, setIsSc
       }
   
       setIsScanning(true);
-      monitorScanStatus(activeTarget, setAmassScans, setIsScanning, setLastScanTriggerTime, setMostRecentAmassScanStatus);
+      monitorScanStatus(activeTarget, setAmassScans, setIsScanning, setMostRecentAmassScanStatus);
     } catch (error) {
       console.error('Error initiating Amass scan:', error);
     }

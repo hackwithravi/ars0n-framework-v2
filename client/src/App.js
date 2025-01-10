@@ -1,16 +1,37 @@
 import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
 import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
+import DNSRecordsModal from './modals/dnsRecordsModal.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
-import { Container, Fade, Card, Row, Col, Button, ListGroup, Accordion, Modal, Table, Form } from 'react-bootstrap';
+import {
+  Container,
+  Fade,
+  Card,
+  Row,
+  Col,
+  Button,
+  ListGroup,
+  Accordion,
+  Modal,
+  Table,
+} from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 import fetchAmassScans from './utils/fetchAmassScans';
 import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
-import { getTypeIcon, getModeIcon, getLastScanDate, getLatestScanStatus, getLatestScanTime, getLatestScanId } from './utils/miscUtils.js';
+import {
+  getTypeIcon,
+  getModeIcon,
+  getLastScanDate,
+  getLatestScanStatus,
+  getLatestScanTime,
+  getLatestScanId,
+  getExecutionTime,
+  getResultLength,
+} from './utils/miscUtils.js';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -19,7 +40,6 @@ function App() {
   const [scanHistory, setScanHistory] = useState([]);
   const [rawResults, setRawResults] = useState([]);
   const [dnsRecords, setDnsRecords] = useState([]);
-  const [filterOptions, setFilterOptions] = useState({ A: true, CNAME: true, MX: true, TXT: true });
   const [showModal, setShowModal] = useState(false);
   const [showActiveModal, setShowActiveModal] = useState(false);
   const [selections, setSelections] = useState({
@@ -33,11 +53,10 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [fadeIn, setFadeIn] = useState(false);
   const [mostRecentAmassScanStatus, setMostRecentAmassScanStatus] = useState(null);
+  const [mostRecentAmassScan, setMostRecentAmassScan] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [lastScanTriggerTime, setLastScanTriggerTime] = useState(Date.now());
-  const [mostRecentScanActiveTarget, setMostRecentScanActiveTarget] = useState(null)
-
-  useEffect(() => {
+  
+    useEffect(() => {
     // Initial fetch of scope targets
     fetchScopeTargets();
   }, []);
@@ -48,8 +67,8 @@ function App() {
       monitorScanStatus(
         activeTarget,
         setAmassScans,
+        setMostRecentAmassScan,
         setIsScanning,
-        setLastScanTriggerTime,
         setMostRecentAmassScanStatus
       );
     }
@@ -58,7 +77,7 @@ function App() {
   useEffect(() => {
     // Fetch Amass scans when activeTarget changes
     if (activeTarget) {
-      fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScanStatus);
+      fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus);
     }
   }, [activeTarget]);
   
@@ -66,14 +85,13 @@ function App() {
     // Update scan history and handle most recent scan when amassScans is updated
     if (activeTarget && amassScans.length > 0) {
       setScanHistory(amassScans);
-      setMostRecentScanActiveTarget(amassScans[amassScans.length - 1]);
     }
   }, [activeTarget, amassScans]);
   
   useEffect(() => {
     // Trigger a fetch when the scan status changes to completed
     if (activeTarget && !isScanning) {
-      fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScanStatus);
+      fetchAmassScans(activeTarget, setMostRecentAmassScan, setMostRecentAmassScan, setMostRecentAmassScanStatus);
     }
   }, [activeTarget, isScanning]);  
 
@@ -245,12 +263,9 @@ function App() {
   const handleCloseRawResultsModal = () => setShowRawResultsModal(false);
   const handleCloseDNSRecordsModal = () => setShowDNSRecordsModal(false);
 
-  const handleFilterChange = (recordType) => {
-    setFilterOptions((prev) => ({ ...prev, [recordType]: !prev[recordType] }));
-  };
 
   const startAmassScan = () => {
-    initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setLastScanTriggerTime, setMostRecentAmassScanStatus)
+    initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus)
   }
 
   return (
@@ -293,9 +308,9 @@ function App() {
               {scanHistory.map((scan) => (
                 <tr key={scan.scan_id}>
                   <td>{scan.scan_id || "ERROR"}</td>
-                  <td>{scan.execution_time || "ERROR"}</td>
-                  <td>{scan.result.split('\n').length || "ERROR"}</td>
-                  <td>{scan.created_at || "ERROR"}</td>
+                  <td>{getExecutionTime(scan.execution_time) || "---"}</td>
+                  <td>{getResultLength(scan) || "---"}</td>
+                  <td>{Date(scan.created_at) || "ERROR"}</td>
                 </tr>
               ))}
             </tbody>
@@ -318,32 +333,11 @@ function App() {
         </Modal.Body>
       </Modal>
 
-      <Modal data-bs-theme="dark" show={showDNSRecordsModal} onHide={handleCloseDNSRecordsModal} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title className="text-danger">DNS Records</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form>
-            {Object.keys(filterOptions).map((recordType) => (
-              <Form.Check
-                className="text-danger custom-checkbox"
-                key={recordType}
-                type="checkbox"
-                label={recordType}
-                checked={filterOptions[recordType]}
-                onChange={() => handleFilterChange(recordType)}
-              />
-            ))}
-          </Form>
-          <ListGroup>
-            {dnsRecords.map((record, index) => (
-              <ListGroup.Item key={index}>
-                {`${record}`}
-              </ListGroup.Item>
-            ))}
-          </ListGroup>
-        </Modal.Body>
-      </Modal>
+      <DNSRecordsModal
+        showDNSRecordsModal={showDNSRecordsModal}
+        handleCloseDNSRecordsModal={handleCloseDNSRecordsModal}
+        dnsRecords={dnsRecords}
+      />
 
       <Fade in={fadeIn}>
         <ManageScopeTargets
@@ -439,19 +433,19 @@ function App() {
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
                             <span>Last Scanned: &nbsp;&nbsp;{getLastScanDate(amassScans)}</span>
-                            <span>Results: {scanHistory[scanHistory.length - 1]?.result.split('\n').length || "N/a"}</span>
+                            <span>Latest Scan Results: {getResultLength(scanHistory[scanHistory.length - 1]) || "N/a"}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
                             <span>Last Scan Status: &nbsp;&nbsp;{getLatestScanStatus(amassScans)}</span>
-                            <span>Completed Scans: {scanHistory.length}</span>
+                            <span>Scan Count: {scanHistory.length}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
-                            <span>Scan Time: &nbsp;&nbsp;{getLatestScanTime(amassScans)}</span>
+                            <span>Scan Time: &nbsp;&nbsp;{getExecutionTime(getLatestScanTime(amassScans))}</span>
                             <span>Subdomains: Coming Soon...</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between mb-3">
                             <span>Scan ID: &nbsp;&nbsp;{getLatestScanId(amassScans)}</span>
-                            <span>DNS Records: Coming Soon...</span>
+                            <span>DNS Records: {dnsRecords.length}</span>
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">

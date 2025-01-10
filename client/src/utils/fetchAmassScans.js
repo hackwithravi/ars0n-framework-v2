@@ -1,4 +1,4 @@
-const fetchAmassScans = async (activeTarget, setAmassScans, setMostRecentAmassScanStatus) => {
+const fetchAmassScans = async (activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus) => {
   
     try {
       const response = await fetch(
@@ -7,8 +7,8 @@ const fetchAmassScans = async (activeTarget, setAmassScans, setMostRecentAmassSc
       if (!response.ok) throw new Error('Failed to fetch Amass scans');
   
       const data = await response.json();
+      
       setAmassScans(data || []);
-  
       if (!Array.isArray(data) || data.length === 0) return null;
   
       const mostRecentScan = data.reduce((latest, scan) => {
@@ -22,6 +22,7 @@ const fetchAmassScans = async (activeTarget, setAmassScans, setMostRecentAmassSc
       if (!scanDetailsResponse.ok) throw new Error('Failed to fetch Amass scan details');
   
       const scanDetails = await scanDetailsResponse.json();
+      setMostRecentAmassScan(scanDetails);
       setMostRecentAmassScanStatus(scanDetails.status);
       return scanDetails.status;
     } catch (error) {

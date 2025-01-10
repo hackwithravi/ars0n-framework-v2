@@ -2,6 +2,30 @@ const getTypeIcon = (type) => `/images/${type}.png`;
 
 const getModeIcon = (mode) => `/images/${mode}.png`;
 
+const getExecutionTime = (execution_time) => {
+    try {
+        if (execution_time === " No execution time available"){
+            return "---"
+        }
+        const minutes = execution_time.split("m")[0]
+        const seconds = execution_time.split("m")[1].split(".")[0]
+        if (seconds.length === 1){
+            return `${minutes}:0${seconds}`
+        }
+        return  `${minutes}:${seconds}`
+    } catch {
+        return "---"
+    }
+}
+
+const getResultLength = (scan) => {
+    try {
+        return scan.result.split('\n').length
+    } catch {
+        return "---"
+    }
+}
+
 const getLastScanDate = (amassScans) => {
   if (amassScans.length === 0) return 'No scans available';
   const lastScan = amassScans.reduce((latest, scan) => {
@@ -36,4 +60,4 @@ const getLatestScanId = (amassScans) => {
   return latestScan.scan_id || 'No scan ID available';
 };
 
-export { getTypeIcon, getModeIcon, getLastScanDate, getLatestScanStatus, getLatestScanTime, getLatestScanId };
+export { getTypeIcon, getModeIcon, getLastScanDate, getLatestScanStatus, getLatestScanTime, getLatestScanId, getExecutionTime, getResultLength };

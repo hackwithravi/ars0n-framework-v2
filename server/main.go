@@ -387,13 +387,19 @@ func executeAmassScan(scanID, domain string) {
 }
 
 func parseAndStoreSubdomains(scanID, result string) {
+	log.Printf("[DEBUG] Starting parseAndStoreSubdomains for scanID: %s", scanID)
 	subdomainRegex := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
 	lines := strings.Split(result, "\n")
+	log.Printf("[DEBUG] Split result into %d lines", len(lines))
+
 	var subdomains []string
 
-	for _, line := range lines {
+	for i, line := range lines {
+		log.Printf("[DEBUG] Processing line %d: %s", i+1, line)
 		matches := subdomainRegex.FindAllString(line, -1)
+		log.Printf("[DEBUG] Found %d matches in line %d", len(matches), i+1)
 		for _, match := range matches {
+			log.Printf("[DEBUG] Adding subdomain %s to list and database", match)
 			subdomains = append(subdomains, match)
 			insertSubdomain(scanID, match)
 		}
@@ -403,11 +409,14 @@ func parseAndStoreSubdomains(scanID, result string) {
 }
 
 func insertSubdomain(scanID, subdomain string) {
+	log.Printf("[DEBUG] Attempting to insert subdomain %s for scanID: %s", subdomain, scanID)
 	query := `INSERT INTO subdomains (scan_id, subdomain) VALUES ($1, $2)`
 	_, err := dbPool.Exec(context.Background(), query, scanID, subdomain)
 	if err != nil {
 		log.Printf("[ERROR] Failed to insert subdomain %s for scan %s: %v", subdomain, scanID, err)
+		return
 	}
+	log.Printf("[DEBUG] Successfully inserted subdomain %s for scanID: %s", subdomain, scanID)
 }
 
 func getAmassScanStatus(w http.ResponseWriter, r *http.Request) {
@@ -549,7 +558,7 @@ func getDNSRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT record FROM dns_records WHERE scan_id = $1 ORDER BY created_at DESC`
+	query := `SELECT id, scan_id, record, record_type, created_at FROM dns_records WHERE scan_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scanID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to fetch DNS records for scan %s: %v", scanID, err)
@@ -558,19 +567,29 @@ func getDNSRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var records []string
+	var dnsRecords []DNSRecord
 	for rows.Next() {
-		var record string
-		if err := rows.Scan(&record); err != nil {
+		var dnsRecord DNSRecord
+		if err := rows.Scan(&dnsRecord.ID, &dnsRecord.ScanID, &dnsRecord.Record, &dnsRecord.Type, &dnsRecord.CreatedAt); err != nil {
 			log.Printf("[ERROR] Failed to scan DNS record row: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		records = append(records, record)
+		dnsRecords = append(dnsRecords, dnsRecord)
 	}
 
+	if err := rows.Err(); err != nil {
+		log.Printf("[ERROR] Error iterating over rows: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(records)
+	if err := json.NewEncoder(w).Encode(dnsRecords); err != nil {
+		log.Printf("[ERROR] Failed to encode DNS records: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 
 func getIPs(w http.ResponseWriter, r *http.Request) {
