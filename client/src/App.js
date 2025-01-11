@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
 import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
-import DNSRecordsModal from './modals/dnsRecordsModal.js';
+import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal } from './modals/amassModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
+import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
   Container,
   Fade,
@@ -18,7 +19,6 @@ import {
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
-import fetchAmassScans from './utils/fetchAmassScans';
 import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
@@ -55,47 +55,46 @@ function App() {
   const [mostRecentAmassScanStatus, setMostRecentAmassScanStatus] = useState(null);
   const [mostRecentAmassScan, setMostRecentAmassScan] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
-  
-    useEffect(() => {
-    // Initial fetch of scope targets
-    fetchScopeTargets();
-  }, []);
-  
+  const [subdomains, setSubdomains] = useState([]);
+  const [showSubdomainsModal, setShowSubdomainsModal] = useState(false);
+  const [cloudDomains, setCloudDomains] = useState([]);
+  const [showCloudDomainsModal, setShowCloudDomainsModal] = useState(false);
+
+  const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
+  const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
+
   useEffect(() => {
-    // Monitor scan status only when activeTarget is set
+    fetchScopeTargets();
+  }, [isScanning]);
+
+  useEffect(() => {
+    if (activeTarget && amassScans.length > 0) {
+      setScanHistory(amassScans);
+    }
+  }, [activeTarget, amassScans, isScanning]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains);
+    }
+  }, [activeTarget, isScanning]);  
+
+  useEffect(() => {
     if (activeTarget) {
       monitorScanStatus(
         activeTarget,
         setAmassScans,
         setMostRecentAmassScan,
         setIsScanning,
-        setMostRecentAmassScanStatus
+        setMostRecentAmassScanStatus,
+        setDnsRecords,
+        setSubdomains,
+        setCloudDomains
       );
     }
   }, [activeTarget]);
-  
-  useEffect(() => {
-    // Fetch Amass scans when activeTarget changes
-    if (activeTarget) {
-      fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus);
-    }
-  }, [activeTarget]);
-  
-  useEffect(() => {
-    // Update scan history and handle most recent scan when amassScans is updated
-    if (activeTarget && amassScans.length > 0) {
-      setScanHistory(amassScans);
-    }
-  }, [activeTarget, amassScans]);
-  
-  useEffect(() => {
-    // Trigger a fetch when the scan status changes to completed
-    if (activeTarget && !isScanning) {
-      fetchAmassScans(activeTarget, setMostRecentAmassScan, setMostRecentAmassScan, setMostRecentAmassScanStatus);
-    }
-  }, [activeTarget, isScanning]);  
 
-// Open Modal Handlers
+  // Open Modal Handlers
 
   const handleOpenScanHistoryModal = () => {
     setScanHistory(amassScans)
@@ -118,6 +117,75 @@ function App() {
     }
   };
 
+  const handleOpenSubdomainsModal = async () => {
+    if (amassScans.length > 0) {
+      const mostRecentScan = amassScans.reduce((latest, scan) => {
+        const scanDate = new Date(scan.created_at);
+        return scanDate > new Date(latest.created_at) ? scan : latest;
+      }, amassScans[0]);
+
+      try {
+        const response = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/amass/${mostRecentScan.scan_id}/subdomain`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch subdomains');
+        }
+        const subdomainsData = await response.json();
+        console.log(subdomainsData);
+        setSubdomains(subdomainsData);
+        setShowSubdomainsModal(true);
+      } catch (error) {
+        setShowSubdomainsModal(true);
+        console.error("Error fetching subdomains:", error);
+      }
+    } else {
+      setShowSubdomainsModal(true);
+      console.warn("No scans available for subdomains");
+    }
+  };
+
+  const handleOpenCloudDomainsModal = async () => {
+    if (amassScans.length > 0) {
+      const mostRecentScan = amassScans.reduce((latest, scan) => {
+        const scanDate = new Date(scan.created_at);
+        return scanDate > new Date(latest.created_at) ? scan : latest;
+      }, amassScans[0]);
+
+      try {
+        const response = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/amass/${mostRecentScan.scan_id}/cloud`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch cloud domains');
+        }
+        const cloudData = await response.json();
+
+        const formattedCloudDomains = [];
+        if (cloudData.aws_domains) {
+          formattedCloudDomains.push(...cloudData.aws_domains.map((name) => ({ type: 'AWS', name })));
+        }
+        if (cloudData.azure_domains) {
+          formattedCloudDomains.push(...cloudData.azure_domains.map((name) => ({ type: 'Azure', name })));
+        }
+        if (cloudData.gcp_domains) {
+          formattedCloudDomains.push(...cloudData.gcp_domains.map((name) => ({ type: 'GCP', name })));
+        }
+
+        setCloudDomains(formattedCloudDomains);
+        setShowCloudDomainsModal(true);
+      } catch (error) {
+        setCloudDomains([]);
+        setShowCloudDomainsModal(true);
+        console.error("Error fetching cloud domains:", error);
+      }
+    } else {
+      setCloudDomains([]);
+      setShowCloudDomainsModal(true);
+      console.warn("No scans available for cloud domains");
+    }
+  };
+
   const handleOpenDNSRecordsModal = async () => {
     if (amassScans.length > 0) {
       const mostRecentScan = amassScans.reduce((latest, scan) => {
@@ -133,8 +201,11 @@ function App() {
           throw new Error('Failed to fetch DNS records');
         }
         const dnsData = await response.json();
-        console.log(dnsData);
-        setDnsRecords(dnsData);
+        if (dnsData !== null) {
+          setDnsRecords(dnsData);
+        } else {
+          setDnsRecords([]);
+        }
         setShowDNSRecordsModal(true);
       } catch (error) {
         setShowDNSRecordsModal(true);
@@ -265,7 +336,7 @@ function App() {
 
 
   const startAmassScan = () => {
-    initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus)
+    initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains, setMostRecentAmassScan)
   }
 
   return (
@@ -337,6 +408,18 @@ function App() {
         showDNSRecordsModal={showDNSRecordsModal}
         handleCloseDNSRecordsModal={handleCloseDNSRecordsModal}
         dnsRecords={dnsRecords}
+      />
+
+      <SubdomainsModal
+        showSubdomainsModal={showSubdomainsModal}
+        handleCloseSubdomainsModal={handleCloseSubdomainsModal}
+        subdomains={subdomains}
+      />
+
+      <CloudDomainsModal
+        showCloudDomainsModal={showCloudDomainsModal}
+        handleCloseCloudDomainsModal={handleCloseCloudDomainsModal}
+        cloudDomains={cloudDomains}
       />
 
       <Fade in={fadeIn}>
@@ -433,15 +516,15 @@ function App() {
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
                             <span>Last Scanned: &nbsp;&nbsp;{getLastScanDate(amassScans)}</span>
-                            <span>Latest Scan Results: {getResultLength(scanHistory[scanHistory.length - 1]) || "N/a"}</span>
+                            <span>Total Results: {getResultLength(scanHistory[scanHistory.length - 1]) || "N/a"}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
                             <span>Last Scan Status: &nbsp;&nbsp;{getLatestScanStatus(amassScans)}</span>
-                            <span>Scan Count: {scanHistory.length}</span>
+                            <span>Cloud Domains: {cloudDomains.length || "0"}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between">
                             <span>Scan Time: &nbsp;&nbsp;{getExecutionTime(getLatestScanTime(amassScans))}</span>
-                            <span>Subdomains: Coming Soon...</span>
+                            <span>Subdomains: {subdomains.length || "0"}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between mb-3">
                             <span>Scan ID: &nbsp;&nbsp;{getLatestScanId(amassScans)}</span>
@@ -453,7 +536,8 @@ function App() {
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenRawResultsModal}>&nbsp;&nbsp;&nbsp;Raw Results&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>Infrastructure Map</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenDNSRecordsModal}>&nbsp;&nbsp;&nbsp;DNS Records&nbsp;&nbsp;&nbsp;</Button>
-                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>&nbsp;&nbsp;&nbsp;Subdomains&nbsp;&nbsp;&nbsp;</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenSubdomainsModal}>&nbsp;&nbsp;&nbsp;Subdomains&nbsp;&nbsp;&nbsp;</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenCloudDomainsModal}>&nbsp;&nbsp;Cloud Domains&nbsp;&nbsp;</Button>
                           <Button
                             variant="outline-danger"
                             onClick={startAmassScan}

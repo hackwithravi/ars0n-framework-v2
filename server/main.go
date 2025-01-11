@@ -41,6 +41,13 @@ type Subdomain struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type CloudDomain struct {
+	ID        string    `json:"id"`
+	Domain    string    `json:"domain"`
+	Type      string    `json:"type"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type RequestPayload struct {
 	Type        string `json:"type"`
 	Mode        string `json:"mode"`
@@ -106,6 +113,7 @@ func main() {
 	r.HandleFunc("/amass/{scan_id}/dns", getDNSRecords).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/ip", getIPs).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/subdomain", getSubdomains).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/cloud", getCloudDomains).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -139,7 +147,7 @@ func createTables() {
 		);`,
 		`CREATE TABLE IF NOT EXISTS amass_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
+			scan_id UUID NOT NULL UNIQUE, 
 			domain TEXT NOT NULL,
 			status VARCHAR(50) NOT NULL,
 			result TEXT,
@@ -170,14 +178,29 @@ func createTables() {
 			subdomain TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
 		);`,
+		`CREATE TABLE IF NOT EXISTS cloud_domains (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			domain TEXT NOT NULL,
+			type TEXT NOT NULL CHECK (type IN ('aws', 'gcp', 'azu')),
+			created_at TIMESTAMP DEFAULT NOW(),
+			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
+		);`,
 	}
 
 	for _, query := range queries {
 		_, err := dbPool.Exec(context.Background(), query)
 		if err != nil {
-			log.Fatalf("Error creating table: %v", err)
+			log.Fatalf("[ERROR] Failed to execute query: %s, error: %v", query, err)
 		}
 	}
+
+	deletePendingScansQuery := `DELETE FROM amass_scans WHERE status = 'pending';`
+	_, err := dbPool.Exec(context.Background(), deletePendingScansQuery)
+	if err != nil {
+		log.Fatalf("[ERROR] Failed to delete pending Amass scans: %v", err)
+	}
+	log.Println("[INFO] Deleted any Amass scans with status 'pending'")
 }
 
 func getAmassScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +329,7 @@ func executeAmassScan(scanID, domain string) {
 		result = stdout.String()
 		log.Printf("[SUCCESS] Amass scan %s completed successfully.\nStdout: %s\nStderr: %s\n", scanID, stdout.String(), stderr.String())
 
-		parseAndStoreSubdomains(scanID, result)
+		parseAndStoreSubdomains(scanID, domain, result)
 
 		lines := strings.Split(result, "\n")
 		dnsRecords := map[string][]string{
@@ -386,7 +409,7 @@ func executeAmassScan(scanID, domain string) {
 	}
 }
 
-func parseAndStoreSubdomains(scanID, result string) {
+func parseAndStoreSubdomains(scanID, rootDomain, result string) {
 	log.Printf("[DEBUG] Starting parseAndStoreSubdomains for scanID: %s", scanID)
 	subdomainRegex := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
 	lines := strings.Split(result, "\n")
@@ -400,22 +423,142 @@ func parseAndStoreSubdomains(scanID, result string) {
 		log.Printf("[DEBUG] Found %d matches in line %d", len(matches), i+1)
 		for _, match := range matches {
 			log.Printf("[DEBUG] Adding subdomain %s to list and database", match)
-			subdomains = append(subdomains, match)
-			insertSubdomain(scanID, match)
+			if strings.Contains(match, rootDomain) {
+				insertSubdomain(scanID, match)
+			} else if isCloudDomain(line) {
+				insertCloudDomain(scanID, line)
+			} else {
+				log.Printf("Unidentified domain: %s", match)
+			}
 		}
 	}
 
 	log.Printf("[INFO] Parsed subdomains for scan %s: %v", scanID, subdomains)
 }
 
+func isCloudDomain(domain string) bool {
+	awsDomains := []string{
+		"amazonaws.com", "awsdns", "cloudfront.net",
+	}
+
+	googleDomains := []string{
+		"google.com", "gcloud.com", "appspot.com",
+		"googleapis.com", "gcp.com", "withgoogle.com",
+	}
+
+	azureDomains := []string{
+		"azure.com", "cloudapp.azure.com", "windows.net",
+		"microsoft.com", "trafficmanager.net", "azureedge.net", "azure.net",
+		"api.applicationinsights.io", "signalr.net", "microsoftonline.com",
+		"azurewebsites.net", "azure-api.net", "redis.cache.windows.net",
+		"media.azure.net", "appserviceenvironment.net",
+	}
+
+	for _, awsDomain := range awsDomains {
+		if strings.Contains(domain, awsDomain) {
+			return true
+		}
+	}
+	for _, googleDomain := range googleDomains {
+		if strings.Contains(domain, googleDomain) {
+			return true
+		}
+	}
+	for _, azureDomain := range azureDomains {
+		if strings.Contains(domain, azureDomain) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func insertCloudDomain(scanID, domain string) {
+	var cloudType string
+
+	awsDomains := []string{
+		"amazonaws.com", "awsdns", "cloudfront.net",
+	}
+
+	googleDomains := []string{
+		"google.com", "gcloud.com", "appspot.com",
+		"googleapis.com", "gcp.com", "withgoogle.com",
+	}
+
+	azureDomains := []string{
+		"azure.com", "cloudapp.azure.com", "windows.net",
+		"microsoft.com", "trafficmanager.net", "azureedge.net", "azure.net",
+		"api.applicationinsights.io", "signalr.net", "microsoftonline.com",
+		"azurewebsites.net", "azure-api.net", "redis.cache.windows.net",
+		"media.azure.net", "appserviceenvironment.net",
+	}
+
+	matchFound := false
+
+	for _, awsDomain := range awsDomains {
+		if strings.Contains(domain, awsDomain) {
+			cloudType = "aws"
+			matchFound = true
+			break
+		}
+	}
+	if !matchFound {
+		for _, googleDomain := range googleDomains {
+			if strings.Contains(domain, googleDomain) {
+				cloudType = "gcp"
+				matchFound = true
+				break
+			}
+		}
+	}
+	if !matchFound {
+		for _, azureDomain := range azureDomains {
+			if strings.Contains(domain, azureDomain) {
+				cloudType = "azure"
+				matchFound = true
+				break
+			}
+		}
+	}
+
+	if !matchFound {
+		log.Printf("[DEBUG] Domain %s does not match any known cloud provider", domain)
+		cloudType = "Unknown"
+	}
+
+	query := `INSERT INTO cloud_domains (scan_id, domain, type) VALUES ($1, $2, $3)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, domain, cloudType)
+	if err != nil {
+		log.Printf("[ERROR] Failed to insert cloud domain %s: %v", domain, err)
+		return
+	}
+
+	log.Printf("[DEBUG] Successfully inserted cloud domain %s with type %s", domain, cloudType)
+}
+
 func insertSubdomain(scanID, subdomain string) {
+	log.Printf("[DEBUG] Checking if subdomain %s for scanID %s is already stored in the database", subdomain, scanID)
+
+	checkQuery := `SELECT COUNT(*) FROM subdomains WHERE scan_id = $1 AND subdomain = $2`
+	var count int
+	err := dbPool.QueryRow(context.Background(), checkQuery, scanID, subdomain).Scan(&count)
+	if err != nil {
+		log.Printf("[ERROR] Failed to check existence of subdomain %s for scanID %s: %v", subdomain, scanID, err)
+		return
+	}
+
+	if count > 0 {
+		log.Printf("[DEBUG] Subdomain %s for scanID %s already exists. Skipping insertion.", subdomain, scanID)
+		return
+	}
 	log.Printf("[DEBUG] Attempting to insert subdomain %s for scanID: %s", subdomain, scanID)
-	query := `INSERT INTO subdomains (scan_id, subdomain) VALUES ($1, $2)`
-	_, err := dbPool.Exec(context.Background(), query, scanID, subdomain)
+	insertQuery := `INSERT INTO subdomains (scan_id, subdomain) VALUES ($1, $2)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, subdomain)
 	if err != nil {
 		log.Printf("[ERROR] Failed to insert subdomain %s for scan %s: %v", subdomain, scanID, err)
 		return
 	}
+
 	log.Printf("[DEBUG] Successfully inserted subdomain %s for scanID: %s", subdomain, scanID)
 }
 
@@ -611,6 +754,9 @@ func getIPs(w http.ResponseWriter, r *http.Request) {
 		}
 		ips = append(ips, ip)
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ips)
 }
 
@@ -621,19 +767,21 @@ func getSubdomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT subdomain FROM subdomains WHERE scan_id = $1 ORDER BY created_at DESC`
-	rows, err := dbPool.Query(context.Background(), query, scanID)
+	// Explicitly initialize to an empty slice
+	subdomains := []string{}
+
+	subdomainQuery := `SELECT subdomain FROM subdomains WHERE scan_id = $1 ORDER BY created_at DESC`
+	subRows, err := dbPool.Query(context.Background(), subdomainQuery, scanID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to fetch subdomains for scan %s: %v", scanID, err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer subRows.Close()
 
-	var subdomains []string
-	for rows.Next() {
+	for subRows.Next() {
 		var subdomain string
-		if err := rows.Scan(&subdomain); err != nil {
+		if err := subRows.Scan(&subdomain); err != nil {
 			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -641,6 +789,59 @@ func getSubdomains(w http.ResponseWriter, r *http.Request) {
 		subdomains = append(subdomains, subdomain)
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(subdomains)
+	if err := json.NewEncoder(w).Encode(subdomains); err != nil {
+		log.Printf("[ERROR] Failed to encode subdomains: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func getCloudDomains(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var awsDomains, gcpDomains, azureDomains []string
+
+	cloudDomainQuery := `SELECT domain, type FROM cloud_domains WHERE scan_id = $1 ORDER BY domain ASC`
+	cloudRows, err := dbPool.Query(context.Background(), cloudDomainQuery, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch cloud domains for scan %s: %v", scanID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer cloudRows.Close()
+
+	for cloudRows.Next() {
+		var domain, domainType string
+		if err := cloudRows.Scan(&domain, &domainType); err != nil {
+			log.Printf("[ERROR] Failed to scan cloud domain row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		switch domainType {
+		case "aws":
+			awsDomains = append(awsDomains, domain)
+		case "gcp":
+			gcpDomains = append(gcpDomains, domain)
+		case "azure":
+			azureDomains = append(azureDomains, domain)
+		}
+	}
+
+	response := map[string][]string{
+		"aws_domains":   awsDomains,
+		"gcp_domains":   gcpDomains,
+		"azure_domains": azureDomains,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[ERROR] Failed to encode cloud domains: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }

@@ -4,9 +4,6 @@ const getModeIcon = (mode) => `/images/${mode}.png`;
 
 const getExecutionTime = (execution_time) => {
     try {
-        if (execution_time === " No execution time available"){
-            return "---"
-        }
         const minutes = execution_time.split("m")[0]
         const seconds = execution_time.split("m")[1].split(".")[0]
         if (seconds.length === 1){
@@ -20,7 +17,8 @@ const getExecutionTime = (execution_time) => {
 
 const getResultLength = (scan) => {
     try {
-        return scan.result.split('\n').length
+        const scanLength = scan.result.split('\n').length - 1
+        return scanLength
     } catch {
         return "---"
     }
@@ -49,7 +47,7 @@ const getLatestScanTime = (amassScans) => {
   const latestScan = amassScans.reduce((latest, scan) => {
     return new Date(scan.created_at) > new Date(latest.created_at) ? scan : latest;
   }, amassScans[0]);
-  return latestScan.execution_time || 'No execution time available';
+  return latestScan.execution_time || '---';
 };
 
 const getLatestScanId = (amassScans) => {
