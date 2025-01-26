@@ -19,6 +19,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type ASN struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Number    string    `json:"number"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Subnet struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	CIDR      string    `json:"cidr"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type DNSRecord struct {
 	ID        string    `json:"id"`
 	ScanID    string    `json:"scan_id"`
@@ -114,6 +128,9 @@ func main() {
 	r.HandleFunc("/amass/{scan_id}/ip", getIPs).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/subdomain", getSubdomains).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/cloud", getCloudDomains).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/sp", getServiceProviders).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/asn", getASNs).Methods("GET")
+	r.HandleFunc("/amass/{scan_id}/subnet", getSubnets).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -186,6 +203,18 @@ func createTables() {
 			created_at TIMESTAMP DEFAULT NOW(),
 			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
 		);`,
+		`CREATE TABLE IF NOT EXISTS asns (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			number TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS subnets (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			cidr TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
 	}
 
 	for _, query := range queries {
@@ -201,6 +230,145 @@ func createTables() {
 		log.Fatalf("[ERROR] Failed to delete pending Amass scans: %v", err)
 	}
 	log.Println("[INFO] Deleted any Amass scans with status 'pending'")
+}
+
+func parseAndStoreResults(scanID, domain, result string) {
+	patterns := map[string]*regexp.Regexp{
+		"service_provider": regexp.MustCompile(`managed_by`),
+		"asn":              regexp.MustCompile(`announces`),
+		"subnet":           regexp.MustCompile(`contains`),
+		"subdomain":        regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`),
+		"ipv4":             regexp.MustCompile(`ipv4_address`),
+		"dns_a":            regexp.MustCompile(`a_record`),
+		"dns_aaaa":         regexp.MustCompile(`aaaa_record`),
+		"dns_cname":        regexp.MustCompile(`cname_record`),
+		"dns_mx":           regexp.MustCompile(`mx_record`),
+		"dns_txt":          regexp.MustCompile(`txt_record`),
+		"dns_ns":           regexp.MustCompile(`ns_record`),
+		"dns_srv":          regexp.MustCompile(`srv_record`),
+		"dns_ptr":          regexp.MustCompile(`ptr_record`),
+		"dns_spf":          regexp.MustCompile(`spf_record`),
+		"dns_soa":          regexp.MustCompile(`soa_record`),
+	}
+
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		if matches := patterns["service_provider"].FindStringSubmatch(line); len(matches) > 1 {
+			insertServiceProvider(scanID, line)
+		}
+		if matches := patterns["asn"].FindStringSubmatch(line); len(matches) > 1 {
+			insertASN(scanID, matches[1])
+		}
+		if matches := patterns["subnet"].FindStringSubmatch(line); len(matches) > 1 {
+			insertSubnet(scanID, matches[1])
+		}
+		if matches := patterns["subdomain"].FindAllString(line, -1); len(matches) > 1 {
+			for _, subdomain := range matches {
+				if strings.Contains(subdomain, domain) {
+					insertSubdomain(scanID, subdomain)
+				} else if isCloudDomain(subdomain) {
+					insertCloudDomain(scanID, subdomain)
+				}
+			}
+		}
+		for recordType, pattern := range map[string]*regexp.Regexp{
+			"A":     patterns["dns_a"],
+			"AAAA":  patterns["dns_aaaa"],
+			"CNAME": patterns["dns_cname"],
+			"MX":    patterns["dns_mx"],
+			"TXT":   patterns["dns_txt"],
+			"NS":    patterns["dns_ns"],
+			"SRV":   patterns["dns_srv"],
+			"PTR":   patterns["dns_ptr"],
+			"SPF":   patterns["dns_spf"],
+			"SOA":   patterns["dns_soa"],
+		} {
+			if pattern.MatchString(line) {
+				insertDNSRecord(scanID, line, recordType)
+			}
+		}
+		if patterns["ipv4"].MatchString(line) {
+			insertIP(scanID, line)
+		}
+	}
+}
+
+func insertServiceProvider(scanID, provider string) {
+	query := `INSERT INTO service_providers (scan_id, provider) VALUES ($1, $2)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, provider)
+	if err != nil {
+		log.Printf("[ERROR] Failed to insert service provider: %v", err)
+	} else {
+		log.Printf("[INFO] Successfully inserted service provider: %s", provider)
+	}
+}
+
+func insertASN(scanID, asn string) {
+	query := `INSERT INTO asns (scan_id, number) VALUES ($1, $2)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, asn)
+	if err != nil {
+		log.Printf("Failed to insert ASN: %v (ASN: %s)", err, asn)
+	} else {
+		log.Printf("Successfully inserted ASN: %s", asn)
+	}
+}
+
+func insertSubnet(scanID, cidr string) {
+	query := `INSERT INTO subnets (scan_id, cidr) VALUES ($1, $2)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, cidr)
+	if err != nil {
+		log.Printf("Failed to insert Subnet: %v (Subnet: %s)", err, cidr)
+	} else {
+		log.Printf("Successfully inserted Subnet: %s", cidr)
+	}
+}
+
+func getASNs(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	query := `SELECT number FROM asns WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		http.Error(w, "Failed to fetch ASNs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var asns []string
+	for rows.Next() {
+		var asn string
+		if err := rows.Scan(&asn); err != nil {
+			http.Error(w, "Error scanning ASN", http.StatusInternalServerError)
+			return
+		}
+		asns = append(asns, asn)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(asns)
+}
+
+func getSubnets(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	query := `SELECT cidr FROM subnets WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		http.Error(w, "Failed to fetch subnets", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var subnets []string
+	for rows.Next() {
+		var cidr string
+		if err := rows.Scan(&cidr); err != nil {
+			http.Error(w, "Error scanning subnet", http.StatusInternalServerError)
+			return
+		}
+		subnets = append(subnets, cidr)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subnets)
 }
 
 func getAmassScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
@@ -291,13 +459,13 @@ func runAmassScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go executeAmassScan(scanID, domain)
+	go executeAndParseAmassScan(scanID, domain)
 
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
-func executeAmassScan(scanID, domain string) {
+func executeAndParseAmassScan(scanID, domain string) {
 	startTime := time.Now()
 	cmd := exec.Command(
 		"docker", "run", "--rm",
@@ -318,122 +486,18 @@ func executeAmassScan(scanID, domain string) {
 
 	err := cmd.Run()
 	execTime := time.Since(startTime).String()
-
 	status := "success"
-	var result, errorMsg string
 	if err != nil {
 		status = "error"
-		errorMsg = err.Error()
-		log.Printf("[ERROR] Amass scan %s failed: %v\nStdout: %s\nStderr: %s\n", scanID, err, stdout.String(), stderr.String())
-	} else {
-		result = stdout.String()
-		log.Printf("[SUCCESS] Amass scan %s completed successfully.\nStdout: %s\nStderr: %s\n", scanID, stdout.String(), stderr.String())
-
-		parseAndStoreSubdomains(scanID, domain, result)
-
-		lines := strings.Split(result, "\n")
-		dnsRecords := map[string][]string{
-			"arecord":     {},
-			"aaaarecord":  {},
-			"cnamerecord": {},
-			"mxrecord":    {},
-			"txtrecord":   {},
-			"node":        {},
-			"nsrecord":    {},
-			"srvrecord":   {},
-			"ptrrecord":   {},
-			"spfrecord":   {},
-			"soarecord":   {},
-		}
-		var ipv4Addresses []string
-
-		for _, line := range lines {
-			if strings.Contains(line, "a_record") && !strings.Contains(line, "aaaa_record") {
-				dnsRecords["arecord"] = append(dnsRecords["arecord"], line)
-				insertDNSRecord(scanID, line, "A")
-			}
-			if strings.Contains(line, "aaaa_record") {
-				dnsRecords["aaaarecord"] = append(dnsRecords["aaaarecord"], line)
-				insertDNSRecord(scanID, line, "AAAA")
-			}
-			if strings.Contains(line, "cname_record") {
-				dnsRecords["cnamerecord"] = append(dnsRecords["cnamerecord"], line)
-				insertDNSRecord(scanID, line, "CNAME")
-			}
-			if strings.Contains(line, "mx_record") {
-				dnsRecords["mxrecord"] = append(dnsRecords["mxrecord"], line)
-				insertDNSRecord(scanID, line, "MX")
-			}
-			if strings.Contains(line, "txt_record") {
-				dnsRecords["txtrecord"] = append(dnsRecords["txtrecord"], line)
-				insertDNSRecord(scanID, line, "TXT")
-			}
-			if strings.Contains(line, "node") {
-				dnsRecords["node"] = append(dnsRecords["node"], line)
-				insertDNSRecord(scanID, line, "Node")
-			}
-			if strings.Contains(line, "ns_record") {
-				dnsRecords["nsrecord"] = append(dnsRecords["nsrecord"], line)
-				insertDNSRecord(scanID, line, "NS")
-			}
-			if strings.Contains(line, "srv_record") {
-				dnsRecords["srvrecord"] = append(dnsRecords["srvrecord"], line)
-				insertDNSRecord(scanID, line, "SRV")
-			}
-			if strings.Contains(line, "ptr_record") {
-				dnsRecords["ptrrecord"] = append(dnsRecords["ptrrecord"], line)
-				insertDNSRecord(scanID, line, "PTR")
-			}
-			if strings.Contains(line, "spf_record") {
-				dnsRecords["spfrecord"] = append(dnsRecords["spfrecord"], line)
-				insertDNSRecord(scanID, line, "SPF")
-			}
-			if strings.Contains(line, "soa_record") {
-				dnsRecords["soarecord"] = append(dnsRecords["soarecord"], line)
-				insertDNSRecord(scanID, line, "SOA")
-			}
-			if strings.Contains(line, "ipv4_address") {
-				ipv4Addresses = append(ipv4Addresses, line)
-				insertIP(scanID, line)
-			}
-		}
-
-		log.Printf("DNS Records: %+v\n", dnsRecords)
-		log.Printf("IPv4 Addresses: %+v\n", ipv4Addresses)
+		log.Printf("[ERROR] Amass scan %s failed: %v", scanID, err)
 	}
 
-	updateQuery := `UPDATE amass_scans SET status = $1, result = $2, error = $3, stdout = $4, stderr = $5, command = $6, execution_time = $7 WHERE scan_id = $8`
-	_, dbErr := dbPool.Exec(context.Background(), updateQuery, status, result, errorMsg, stdout.String(), stderr.String(), cmd.String(), execTime, scanID)
-	if dbErr != nil {
-		log.Printf("[ERROR] Failed to update scan record: %v", dbErr)
-	}
-}
-
-func parseAndStoreSubdomains(scanID, rootDomain, result string) {
-	log.Printf("[DEBUG] Starting parseAndStoreSubdomains for scanID: %s", scanID)
-	subdomainRegex := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
-	lines := strings.Split(result, "\n")
-	log.Printf("[DEBUG] Split result into %d lines", len(lines))
-
-	var subdomains []string
-
-	for i, line := range lines {
-		log.Printf("[DEBUG] Processing line %d: %s", i+1, line)
-		matches := subdomainRegex.FindAllString(line, -1)
-		log.Printf("[DEBUG] Found %d matches in line %d", len(matches), i+1)
-		for _, match := range matches {
-			log.Printf("[DEBUG] Adding subdomain %s to list and database", match)
-			if strings.Contains(match, rootDomain) {
-				insertSubdomain(scanID, match)
-			} else if isCloudDomain(line) {
-				insertCloudDomain(scanID, line)
-			} else {
-				log.Printf("Unidentified domain: %s", match)
-			}
-		}
+	result := stdout.String()
+	if status == "success" {
+		parseAndStoreResults(scanID, domain, result)
 	}
 
-	log.Printf("[INFO] Parsed subdomains for scan %s: %v", scanID, subdomains)
+	updateScanStatus(scanID, status, result, stderr.String(), cmd.String(), execTime)
 }
 
 func isCloudDomain(domain string) bool {
@@ -471,6 +535,14 @@ func isCloudDomain(domain string) bool {
 	}
 
 	return false
+}
+
+func updateScanStatus(scanID, status, result, stderr, command, execTime string) {
+	query := `UPDATE amass_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update scan record for scanID %s: %v", scanID, err)
+	}
 }
 
 func insertCloudDomain(scanID, domain string) {
@@ -844,4 +916,34 @@ func getCloudDomains(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] Failed to encode cloud domains: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+func getServiceProviders(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scan_id"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT provider FROM service_providers WHERE scan_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scanID)
+	if err != nil {
+		http.Error(w, "Failed to fetch service providers", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var providers []string
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil {
+			http.Error(w, "Error scanning service provider", http.StatusInternalServerError)
+			return
+		}
+		providers = append(providers, provider)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(providers)
 }
