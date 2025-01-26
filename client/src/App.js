@@ -16,6 +16,8 @@ import {
   Accordion,
   Modal,
   Table,
+  Toast,
+  ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -31,7 +33,9 @@ import {
   getLatestScanId,
   getExecutionTime,
   getResultLength,
+  copyToClipboard,
 } from './utils/miscUtils.js';
+import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -59,6 +63,7 @@ function App() {
   const [showSubdomainsModal, setShowSubdomainsModal] = useState(false);
   const [cloudDomains, setCloudDomains] = useState([]);
   const [showCloudDomainsModal, setShowCloudDomainsModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -339,9 +344,82 @@ function App() {
     initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains, setMostRecentAmassScan)
   }
 
+  const renderScanId = (scanId) => {
+    if (scanId === 'No scans available' || scanId === 'No scan ID available') {
+      return <span>{scanId}</span>;
+    }
+    
+    const handleCopy = async () => {
+      const success = await copyToClipboard(scanId);
+      if (success) {
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000); // Hide after 3 seconds
+      }
+    };
+
+    return (
+      <span className="scan-id-container">
+        {scanId}
+        <button 
+          onClick={handleCopy}
+          className="copy-button"
+          title="Copy Scan ID"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '4px',
+          }}
+        >
+          <MdCopyAll size={14} />
+        </button>
+      </span>
+    );
+  };
+
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
       <Ars0nFrameworkHeader />
+
+      <ToastContainer 
+        position="bottom-center"
+        style={{ 
+          position: 'fixed', 
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          minWidth: '300px'
+        }}
+      >
+        <Toast 
+          show={showToast} 
+          onClose={() => setShowToast(false)}
+          className={`custom-toast ${!showToast ? 'hide' : ''}`}
+          autohide
+          delay={3000}
+        >
+          <Toast.Header>
+            <MdCheckCircle 
+              className="success-icon me-2" 
+              size={20} 
+              color="#ff0000"
+            />
+            <strong className="me-auto" style={{ 
+              color: '#ff0000',
+              fontSize: '0.95rem',
+              letterSpacing: '0.5px'
+            }}>
+              Success
+            </strong>
+          </Toast.Header>
+          <Toast.Body style={{ color: '#ffffff' }}>
+            <div className="d-flex align-items-center">
+              <span>Scan ID Copied to Clipboard</span>
+            </div>
+          </Toast.Body>
+        </Toast>
+      </ToastContainer>
 
       <AddScopeTargetModal
         show={showModal}
@@ -527,7 +605,7 @@ function App() {
                             <span>Subdomains: {subdomains.length || "0"}</span>
                           </Card.Text>
                           <Card.Text className="text-white small d-flex justify-content-between mb-3">
-                            <span>Scan ID: &nbsp;&nbsp;{getLatestScanId(amassScans)}</span>
+                            <span>Scan ID: {renderScanId(getLatestScanId(amassScans))}</span>
                             <span>DNS Records: {dnsRecords.length}</span>
                           </Card.Text>
                         </div>
