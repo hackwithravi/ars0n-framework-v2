@@ -1,23 +1,23 @@
 import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
 import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
-import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal } from './modals/amassModals.js';
+import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapModal } from './modals/amassModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-  Container,
-  Fade,
-  Card,
-  Row,
-  Col,
-  Button,
-  ListGroup,
-  Accordion,
-  Modal,
-  Table,
-  Toast,
-  ToastContainer,
+    Container,
+    Fade,
+    Card,
+    Row,
+    Col,
+    Button,
+    ListGroup,
+    Accordion,
+    Modal,
+    Table,
+    Toast,
+    ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -25,15 +25,15 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-  getTypeIcon,
-  getModeIcon,
-  getLastScanDate,
-  getLatestScanStatus,
-  getLatestScanTime,
-  getLatestScanId,
-  getExecutionTime,
-  getResultLength,
-  copyToClipboard,
+    getTypeIcon,
+    getModeIcon,
+    getLastScanDate,
+    getLatestScanStatus,
+    getLatestScanTime,
+    getLatestScanId,
+    getExecutionTime,
+    getResultLength,
+    copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 
@@ -64,6 +64,7 @@ function App() {
   const [cloudDomains, setCloudDomains] = useState([]);
   const [showCloudDomainsModal, setShowCloudDomainsModal] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [showInfraModal, setShowInfraModal] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -377,6 +378,9 @@ function App() {
     );
   };
 
+  const handleOpenInfraModal = () => setShowInfraModal(true);
+  const handleCloseInfraModal = () => setShowInfraModal(false);
+
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
       <Ars0nFrameworkHeader />
@@ -500,6 +504,12 @@ function App() {
         cloudDomains={cloudDomains}
       />
 
+      <InfrastructureMapModal
+        showInfraModal={showInfraModal}
+        handleCloseInfraModal={handleCloseInfraModal}
+        scanId={getLatestScanId(amassScans)}
+      />
+
       <Fade in={fadeIn}>
         <ManageScopeTargets
           handleOpen={handleOpen}
@@ -612,7 +622,7 @@ function App() {
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenScanHistoryModal}>&nbsp;&nbsp;&nbsp;Scan History&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenRawResultsModal}>&nbsp;&nbsp;&nbsp;Raw Results&nbsp;&nbsp;&nbsp;</Button>
-                          <Button variant="outline-danger" className="flex-fill" onClick={() => console.log(amassScans)}>Infrastructure Map</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenInfraModal}>Infrastructure Map</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenDNSRecordsModal}>&nbsp;&nbsp;&nbsp;DNS Records&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenSubdomainsModal}>&nbsp;&nbsp;&nbsp;Subdomains&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenCloudDomainsModal}>&nbsp;&nbsp;Cloud Domains&nbsp;&nbsp;</Button>

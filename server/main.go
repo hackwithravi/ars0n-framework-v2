@@ -23,6 +23,7 @@ type ASN struct {
 	ID        string    `json:"id"`
 	ScanID    string    `json:"scan_id"`
 	Number    string    `json:"number"`
+	RawData   string    `json:"raw_data"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -30,6 +31,7 @@ type Subnet struct {
 	ID        string    `json:"id"`
 	ScanID    string    `json:"scan_id"`
 	CIDR      string    `json:"cidr"`
+	RawData   string    `json:"raw_data"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -87,6 +89,14 @@ type AmassScanStatus struct {
 	Command   sql.NullString `json:"command,omitempty"`
 	ExecTime  sql.NullString `json:"execution_time,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
+}
+
+type ServiceProvider struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Provider  string    `json:"provider"`
+	RawData   string    `json:"raw_data"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 var dbPool *pgxpool.Pool
@@ -207,13 +217,23 @@ func createTables() {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL,
 			number TEXT NOT NULL,
+			raw_data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
 		);`,
 		`CREATE TABLE IF NOT EXISTS subnets (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL,
 			cidr TEXT NOT NULL,
+			raw_data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS service_providers (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL,
+			provider TEXT NOT NULL,
+			raw_data TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW(),
+			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
 		);`,
 	}
 
@@ -233,12 +253,14 @@ func createTables() {
 }
 
 func parseAndStoreResults(scanID, domain, result string) {
+	log.Printf("[INFO] Starting to parse results for scan %s on domain %s", scanID, domain)
+
 	patterns := map[string]*regexp.Regexp{
-		"service_provider": regexp.MustCompile(`managed_by`),
-		"asn":              regexp.MustCompile(`announces`),
-		"subnet":           regexp.MustCompile(`contains`),
+		"service_provider": regexp.MustCompile(`(\d+)\s+\(ASN\)\s+-->\s+managed_by\s+-->\s+(.+?)\s+\(RIROrganization\)`),
+		"asn_announces":    regexp.MustCompile(`(\d+)\s+\(ASN\)\s+-->\s+announces\s+-->\s+([^\s]+)\s+\(Netblock\)`),
+		"subnet_contains":  regexp.MustCompile(`([^\s]+)\s+\(Netblock\)\s+-->\s+contains\s+-->\s+([^\s]+)\s+\(IPAddress\)`),
 		"subdomain":        regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`),
-		"ipv4":             regexp.MustCompile(`ipv4_address`),
+		"ipv4":             regexp.MustCompile(`(\d+\.\d+\.\d+\.\d+)\s+\(IPAddress\)`),
 		"dns_a":            regexp.MustCompile(`a_record`),
 		"dns_aaaa":         regexp.MustCompile(`aaaa_record`),
 		"dns_cname":        regexp.MustCompile(`cname_record`),
@@ -252,25 +274,60 @@ func parseAndStoreResults(scanID, domain, result string) {
 	}
 
 	lines := strings.Split(result, "\n")
-	for _, line := range lines {
-		if matches := patterns["service_provider"].FindStringSubmatch(line); len(matches) > 1 {
-			insertServiceProvider(scanID, line)
+	log.Printf("[INFO] Processing %d lines of output", len(lines))
+
+	for lineNum, line := range lines {
+		log.Printf("[DEBUG] Processing line %d: %s", lineNum+1, line)
+
+		// Parse ASN and Service Provider information
+		if matches := patterns["service_provider"].FindStringSubmatch(line); len(matches) > 2 {
+			asn := matches[1]
+			provider := matches[2]
+			log.Printf("[DEBUG] Found ASN %s with provider %s", asn, provider)
+			insertASN(scanID, asn, line)
+			insertServiceProvider(scanID, provider, line)
 		}
-		if matches := patterns["asn"].FindStringSubmatch(line); len(matches) > 1 {
-			insertASN(scanID, matches[1])
+
+		// Parse ASN announcements
+		if matches := patterns["asn_announces"].FindStringSubmatch(line); len(matches) > 2 {
+			asn := matches[1]
+			subnet := matches[2]
+			log.Printf("[DEBUG] Found ASN %s announcing subnet %s", asn, subnet)
+			insertASN(scanID, asn, line)
+			insertSubnet(scanID, subnet, line)
 		}
-		if matches := patterns["subnet"].FindStringSubmatch(line); len(matches) > 1 {
-			insertSubnet(scanID, matches[1])
+
+		// Parse subnet contains IP
+		if matches := patterns["subnet_contains"].FindStringSubmatch(line); len(matches) > 2 {
+			subnet := matches[1]
+			ip := matches[2]
+			log.Printf("[DEBUG] Found subnet %s containing IP %s", subnet, ip)
+			insertSubnet(scanID, subnet, line)
+			insertIP(scanID, ip)
 		}
-		if matches := patterns["subdomain"].FindAllString(line, -1); len(matches) > 1 {
+
+		// Parse subdomains
+		if matches := patterns["subdomain"].FindAllString(line, -1); len(matches) > 0 {
+			log.Printf("[DEBUG] Found potential subdomain matches: %v", matches)
 			for _, subdomain := range matches {
 				if strings.Contains(subdomain, domain) {
+					log.Printf("[DEBUG] Valid subdomain found: %s", subdomain)
 					insertSubdomain(scanID, subdomain)
 				} else if isCloudDomain(subdomain) {
+					log.Printf("[DEBUG] Cloud domain found: %s", subdomain)
 					insertCloudDomain(scanID, subdomain)
 				}
 			}
 		}
+
+		// Parse IP addresses
+		if matches := patterns["ipv4"].FindStringSubmatch(line); len(matches) > 1 {
+			ip := matches[1]
+			log.Printf("[DEBUG] Found IPv4 address: %s", ip)
+			insertIP(scanID, ip)
+		}
+
+		// Parse DNS records
 		for recordType, pattern := range map[string]*regexp.Regexp{
 			"A":     patterns["dns_a"],
 			"AAAA":  patterns["dns_aaaa"],
@@ -284,18 +341,17 @@ func parseAndStoreResults(scanID, domain, result string) {
 			"SOA":   patterns["dns_soa"],
 		} {
 			if pattern.MatchString(line) {
+				log.Printf("[DEBUG] Found DNS record type %s: %s", recordType, line)
 				insertDNSRecord(scanID, line, recordType)
 			}
 		}
-		if patterns["ipv4"].MatchString(line) {
-			insertIP(scanID, line)
-		}
 	}
+	log.Printf("[INFO] Completed parsing results for scan %s", scanID)
 }
 
-func insertServiceProvider(scanID, provider string) {
-	query := `INSERT INTO service_providers (scan_id, provider) VALUES ($1, $2)`
-	_, err := dbPool.Exec(context.Background(), query, scanID, provider)
+func insertServiceProvider(scanID, provider, rawData string) {
+	query := `INSERT INTO service_providers (scan_id, provider, raw_data) VALUES ($1, $2, $3)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, provider, rawData)
 	if err != nil {
 		log.Printf("[ERROR] Failed to insert service provider: %v", err)
 	} else {
@@ -303,9 +359,9 @@ func insertServiceProvider(scanID, provider string) {
 	}
 }
 
-func insertASN(scanID, asn string) {
-	query := `INSERT INTO asns (scan_id, number) VALUES ($1, $2)`
-	_, err := dbPool.Exec(context.Background(), query, scanID, asn)
+func insertASN(scanID, asn, rawData string) {
+	query := `INSERT INTO asns (scan_id, number, raw_data) VALUES ($1, $2, $3)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, asn, rawData)
 	if err != nil {
 		log.Printf("Failed to insert ASN: %v (ASN: %s)", err, asn)
 	} else {
@@ -313,9 +369,9 @@ func insertASN(scanID, asn string) {
 	}
 }
 
-func insertSubnet(scanID, cidr string) {
-	query := `INSERT INTO subnets (scan_id, cidr) VALUES ($1, $2)`
-	_, err := dbPool.Exec(context.Background(), query, scanID, cidr)
+func insertSubnet(scanID, cidr, rawData string) {
+	query := `INSERT INTO subnets (scan_id, cidr, raw_data) VALUES ($1, $2, $3)`
+	_, err := dbPool.Exec(context.Background(), query, scanID, cidr, rawData)
 	if err != nil {
 		log.Printf("Failed to insert Subnet: %v (Subnet: %s)", err, cidr)
 	} else {
@@ -325,7 +381,19 @@ func insertSubnet(scanID, cidr string) {
 
 func getASNs(w http.ResponseWriter, r *http.Request) {
 	scanID := mux.Vars(r)["scan_id"]
-	query := `SELECT number FROM asns WHERE scan_id = $1 ORDER BY created_at DESC`
+	if scanID == "" || scanID == "No scans available" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+
+	// Validate UUID format
+	if _, err := uuid.Parse(scanID); err != nil {
+		http.Error(w, "Invalid scan ID format", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT number, raw_data FROM asns WHERE scan_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scanID)
 	if err != nil {
 		http.Error(w, "Failed to fetch ASNs", http.StatusInternalServerError)
@@ -333,10 +401,15 @@ func getASNs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var asns []string
+	type ASNResponse struct {
+		Number  string `json:"number"`
+		RawData string `json:"raw_data"`
+	}
+
+	var asns []ASNResponse
 	for rows.Next() {
-		var asn string
-		if err := rows.Scan(&asn); err != nil {
+		var asn ASNResponse
+		if err := rows.Scan(&asn.Number, &asn.RawData); err != nil {
 			http.Error(w, "Error scanning ASN", http.StatusInternalServerError)
 			return
 		}
@@ -349,7 +422,19 @@ func getASNs(w http.ResponseWriter, r *http.Request) {
 
 func getSubnets(w http.ResponseWriter, r *http.Request) {
 	scanID := mux.Vars(r)["scan_id"]
-	query := `SELECT cidr FROM subnets WHERE scan_id = $1 ORDER BY created_at DESC`
+	if scanID == "" || scanID == "No scans available" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+
+	// Validate UUID format
+	if _, err := uuid.Parse(scanID); err != nil {
+		http.Error(w, "Invalid scan ID format", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT cidr, raw_data FROM subnets WHERE scan_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scanID)
 	if err != nil {
 		http.Error(w, "Failed to fetch subnets", http.StatusInternalServerError)
@@ -357,14 +442,19 @@ func getSubnets(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var subnets []string
+	type SubnetResponse struct {
+		CIDR    string `json:"cidr"`
+		RawData string `json:"raw_data"`
+	}
+
+	var subnets []SubnetResponse
 	for rows.Next() {
-		var cidr string
-		if err := rows.Scan(&cidr); err != nil {
+		var subnet SubnetResponse
+		if err := rows.Scan(&subnet.CIDR, &subnet.RawData); err != nil {
 			http.Error(w, "Error scanning subnet", http.StatusInternalServerError)
 			return
 		}
-		subnets = append(subnets, cidr)
+		subnets = append(subnets, subnet)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -466,7 +556,9 @@ func runAmassScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func executeAndParseAmassScan(scanID, domain string) {
+	log.Printf("[INFO] Starting Amass scan for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
+
 	cmd := exec.Command(
 		"docker", "run", "--rm",
 		"caffix/amass",
@@ -480,24 +572,36 @@ func executeAndParseAmassScan(scanID, domain string) {
 		"94.140.14.14", "94.140.15.15", "1.0.0.1", "77.88.8.8", "77.88.8.1",
 	)
 
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	execTime := time.Since(startTime).String()
-	status := "success"
+
 	if err != nil {
-		status = "error"
-		log.Printf("[ERROR] Amass scan %s failed: %v", scanID, err)
+		log.Printf("[ERROR] Amass scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		updateScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
 	}
 
 	result := stdout.String()
-	if status == "success" {
+	log.Printf("[INFO] Amass scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result != "" {
+		log.Printf("[INFO] Starting to parse results for scan %s", scanID)
 		parseAndStoreResults(scanID, domain, result)
+		log.Printf("[INFO] Finished parsing results for scan %s", scanID)
+	} else {
+		log.Printf("[WARN] No output from Amass scan for domain %s", domain)
 	}
 
-	updateScanStatus(scanID, status, result, stderr.String(), cmd.String(), execTime)
+	updateScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
 }
 
 func isCloudDomain(domain string) bool {
@@ -538,10 +642,13 @@ func isCloudDomain(domain string) bool {
 }
 
 func updateScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating scan status for %s to %s", scanID, status)
 	query := `UPDATE amass_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
 	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to update scan record for scanID %s: %v", scanID, err)
+		log.Printf("[ERROR] Failed to update scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated scan status for %s", scanID)
 	}
 }
 
@@ -751,25 +858,38 @@ func deleteScopeTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func insertDNSRecord(scanID, record, recordType string) {
+	log.Printf("[DEBUG] Inserting DNS record type %s for scan %s: %s", recordType, scanID, record)
 	query := `INSERT INTO dns_records (scan_id, record, record_type) VALUES ($1, $2, $3)`
 	_, err := dbPool.Exec(context.Background(), query, scanID, record, recordType)
 	if err != nil {
-		log.Printf("Failed to insert DNS record: %v", err)
+		log.Printf("[ERROR] Failed to insert DNS record: %v", err)
+	} else {
+		log.Printf("[DEBUG] Successfully inserted DNS record type %s for scan %s", recordType, scanID)
 	}
 }
 
 func insertIP(scanID, ip string) {
+	log.Printf("[DEBUG] Inserting IP address for scan %s: %s", scanID, ip)
 	query := `INSERT INTO ips (scan_id, ip_address) VALUES ($1, $2)`
 	_, err := dbPool.Exec(context.Background(), query, scanID, ip)
 	if err != nil {
-		log.Printf("Failed to insert IP address: %v", err)
+		log.Printf("[ERROR] Failed to insert IP address %s: %v", ip, err)
+	} else {
+		log.Printf("[DEBUG] Successfully inserted IP address %s for scan %s", ip, scanID)
 	}
 }
 
 func getDNSRecords(w http.ResponseWriter, r *http.Request) {
 	scanID := mux.Vars(r)["scan_id"]
-	if scanID == "" {
-		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+	if scanID == "" || scanID == "No scans available" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+
+	// Validate UUID format
+	if _, err := uuid.Parse(scanID); err != nil {
+		http.Error(w, "Invalid scan ID format", http.StatusBadRequest)
 		return
 	}
 
@@ -920,12 +1040,19 @@ func getCloudDomains(w http.ResponseWriter, r *http.Request) {
 
 func getServiceProviders(w http.ResponseWriter, r *http.Request) {
 	scanID := mux.Vars(r)["scan_id"]
-	if scanID == "" {
-		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+	if scanID == "" || scanID == "No scans available" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
 		return
 	}
 
-	query := `SELECT provider FROM service_providers WHERE scan_id = $1 ORDER BY created_at DESC`
+	// Validate UUID format
+	if _, err := uuid.Parse(scanID); err != nil {
+		http.Error(w, "Invalid scan ID format", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT provider, raw_data FROM service_providers WHERE scan_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scanID)
 	if err != nil {
 		http.Error(w, "Failed to fetch service providers", http.StatusInternalServerError)
@@ -933,10 +1060,15 @@ func getServiceProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var providers []string
+	type ServiceProviderResponse struct {
+		Provider string `json:"provider"`
+		RawData  string `json:"raw_data"`
+	}
+
+	var providers []ServiceProviderResponse
 	for rows.Next() {
-		var provider string
-		if err := rows.Scan(&provider); err != nil {
+		var provider ServiceProviderResponse
+		if err := rows.Scan(&provider.Provider, &provider.RawData); err != nil {
 			http.Error(w, "Error scanning service provider", http.StatusInternalServerError)
 			return
 		}
