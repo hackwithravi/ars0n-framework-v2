@@ -2,22 +2,23 @@ import { useState, useEffect } from 'react';
 import AddScopeTargetModal from './modals/addScopeTargetModal.js';
 import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
 import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapModal } from './modals/amassModals.js';
+import { HttpxResultsModal } from './modals/httpxModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-    Container,
-    Fade,
-    Card,
-    Row,
-    Col,
-    Button,
-    ListGroup,
-    Accordion,
-    Modal,
-    Table,
-    Toast,
-    ToastContainer,
+  Container,
+  Fade,
+  Card,
+  Row,
+  Col,
+  Button,
+  ListGroup,
+  Accordion,
+  Modal,
+  Table,
+  Toast,
+  ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -25,17 +26,19 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-    getTypeIcon,
-    getModeIcon,
-    getLastScanDate,
-    getLatestScanStatus,
-    getLatestScanTime,
-    getLatestScanId,
-    getExecutionTime,
-    getResultLength,
-    copyToClipboard,
+  getTypeIcon,
+  getModeIcon,
+  getLastScanDate,
+  getLatestScanStatus,
+  getLatestScanTime,
+  getLatestScanId,
+  getExecutionTime,
+  getResultLength,
+  copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
+import initiateHttpxScan from './utils/initiateHttpxScan';
+import monitorHttpxScanStatus from './utils/monitorHttpxScanStatus';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -65,6 +68,11 @@ function App() {
   const [showCloudDomainsModal, setShowCloudDomainsModal] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [showInfraModal, setShowInfraModal] = useState(false);
+  const [httpxScans, setHttpxScans] = useState([]);
+  const [mostRecentHttpxScanStatus, setMostRecentHttpxScanStatus] = useState(null);
+  const [mostRecentHttpxScan, setMostRecentHttpxScan] = useState(null);
+  const [isHttpxScanning, setIsHttpxScanning] = useState(false);
+  const [showHttpxResultsModal, setShowHttpxResultsModal] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -96,6 +104,18 @@ function App() {
         setDnsRecords,
         setSubdomains,
         setCloudDomains
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorHttpxScanStatus(
+        activeTarget,
+        setHttpxScans,
+        setMostRecentHttpxScan,
+        setIsHttpxScanning,
+        setMostRecentHttpxScanStatus
       );
     }
   }, [activeTarget]);
@@ -316,8 +336,29 @@ function App() {
       const data = await response.json();
       setScopeTargets(data || []);
       setFadeIn(true);
+      
       if (data && data.length > 0) {
-        setActiveTarget(data[0]);
+        // Find the active scope target
+        const activeTargets = data.filter(target => target.active);
+        
+        if (activeTargets.length === 1) {
+          // One active target found, use it
+          setActiveTarget(activeTargets[0]);
+        } else {
+          // No active target or multiple active targets, use first target and set it as active
+          setActiveTarget(data[0]);
+          // Call the API to set the first target as active
+          try {
+            await fetch(
+              `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${data[0].id}/activate`,
+              {
+                method: 'POST',
+              }
+            );
+          } catch (error) {
+            console.error('Error setting active scope target:', error);
+          }
+        }
       } else {
         setShowModal(true);
       }
@@ -327,8 +368,27 @@ function App() {
     }
   };
 
-  const handleActiveSelect = (target) => {
+  const handleActiveSelect = async (target) => {
     setActiveTarget(target);
+    // Update the backend to set this target as active
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${target.id}/activate`,
+        {
+          method: 'POST',
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to update active scope target');
+      }
+      // Update the local scope targets list to reflect the change
+      setScopeTargets(prev => prev.map(t => ({
+        ...t,
+        active: t.id === target.id
+      })));
+    } catch (error) {
+      console.error('Error updating active scope target:', error);
+    }
   };
 
   const handleSelect = (key, value) => {
@@ -343,6 +403,17 @@ function App() {
 
   const startAmassScan = () => {
     initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains, setMostRecentAmassScan)
+  }
+
+  const startHttpxScan = () => {
+    initiateHttpxScan(
+      activeTarget,
+      monitorHttpxScanStatus,
+      setIsHttpxScanning,
+      setHttpxScans,
+      setMostRecentHttpxScanStatus,
+      setMostRecentHttpxScan
+    );
   }
 
   const renderScanId = (scanId) => {
@@ -380,6 +451,9 @@ function App() {
 
   const handleOpenInfraModal = () => setShowInfraModal(true);
   const handleCloseInfraModal = () => setShowInfraModal(false);
+
+  const handleCloseHttpxResultsModal = () => setShowHttpxResultsModal(false);
+  const handleOpenHttpxResultsModal = () => setShowHttpxResultsModal(true);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -508,6 +582,12 @@ function App() {
         showInfraModal={showInfraModal}
         handleCloseInfraModal={handleCloseInfraModal}
         scanId={getLatestScanId(amassScans)}
+      />
+
+      <HttpxResultsModal
+        showHttpxResultsModal={showHttpxResultsModal}
+        handleCloseHttpxResultsModal={handleCloseHttpxResultsModal}
+        httpxResults={mostRecentHttpxScan}
       />
 
       <Fade in={fadeIn}>
@@ -819,8 +899,19 @@ function App() {
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill">Results</Button>
-                          <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Results</Button>
+                          <Button
+                            variant="outline-danger"
+                            className="flex-fill"
+                            onClick={startHttpxScan}
+                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
+                          >
+                            {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                              <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                            ) : (
+                              'Scan'
+                            )}
+                          </Button>
                         </div>
                       </Card.Body>
                     </Card>
@@ -949,8 +1040,19 @@ function App() {
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill">Results</Button>
-                          <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Results</Button>
+                          <Button
+                            variant="outline-danger"
+                            className="flex-fill"
+                            onClick={startHttpxScan}
+                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
+                          >
+                            {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                              <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                            ) : (
+                              'Scan'
+                            )}
+                          </Button>
                         </div>
                       </Card.Body>
                     </Card>

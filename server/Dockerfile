@@ -1,4 +1,10 @@
-FROM golang:1.23
+FROM golang:1.23-alpine
+
+# Install required packages
+RUN apk add --no-cache git gcc musl-dev docker
+
+# Install httpx
+RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 WORKDIR /app
 
@@ -9,8 +15,6 @@ COPY . .
 
 RUN mkdir -p /app/temp
 RUN chmod -R 777 /app/temp
-
-RUN apt-get update && apt-get install -y docker.io
 
 RUN go build -o main .
 

@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -68,6 +70,7 @@ type RequestPayload struct {
 	Type        string `json:"type"`
 	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
+	Active      bool   `json:"active"`
 }
 
 type ResponsePayload struct {
@@ -75,6 +78,7 @@ type ResponsePayload struct {
 	Type        string `json:"type"`
 	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
+	Active      bool   `json:"active"`
 }
 
 type AmassScanStatus struct {
@@ -97,6 +101,35 @@ type ServiceProvider struct {
 	Provider  string    `json:"provider"`
 	RawData   string    `json:"raw_data"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type HttpxScanStatus struct {
+	ID        string         `json:"id"`
+	ScanID    string         `json:"scan_id"`
+	Domain    string         `json:"domain"`
+	Status    string         `json:"status"`
+	Result    sql.NullString `json:"result,omitempty"`
+	Error     sql.NullString `json:"error,omitempty"`
+	StdOut    sql.NullString `json:"stdout,omitempty"`
+	StdErr    sql.NullString `json:"stderr,omitempty"`
+	Command   sql.NullString `json:"command,omitempty"`
+	ExecTime  sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+}
+
+type ScanSummary struct {
+	ID        string    `json:"id"`
+	ScanID    string    `json:"scan_id"`
+	Domain    string    `json:"domain"`
+	Status    string    `json:"status"`
+	Result    string    `json:"result,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	StdOut    string    `json:"stdout,omitempty"`
+	StdErr    string    `json:"stderr,omitempty"`
+	Command   string    `json:"command,omitempty"`
+	ExecTime  string    `json:"execution_time,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	ScanType  string    `json:"scan_type"`
 }
 
 var dbPool *pgxpool.Pool
@@ -131,6 +164,7 @@ func main() {
 	r.HandleFunc("/scopetarget/add", createScopeTarget).Methods("POST")
 	r.HandleFunc("/scopetarget/read", readScopeTarget).Methods("GET")
 	r.HandleFunc("/scopetarget/delete/{id}", deleteScopeTarget).Methods("DELETE")
+	r.HandleFunc("/scopetarget/{id}/activate", activateScopeTarget).Methods("POST")
 	r.HandleFunc("/scopetarget/{id}/scans/amass", getAmassScansForScopeTarget).Methods("GET")
 	r.HandleFunc("/amass/run", runAmassScan).Methods("POST")
 	r.HandleFunc("/amass/{scanID}", getAmassScanStatus).Methods("GET")
@@ -141,6 +175,10 @@ func main() {
 	r.HandleFunc("/amass/{scan_id}/sp", getServiceProviders).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/asn", getASNs).Methods("GET")
 	r.HandleFunc("/amass/{scan_id}/subnet", getSubnets).Methods("GET")
+	r.HandleFunc("/httpx/run", runHttpxScan).Methods("POST")
+	r.HandleFunc("/httpx/{scanID}", getHttpxScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/httpx", getHttpxScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans", getAllScansForScopeTarget).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -166,11 +204,14 @@ func corsMiddleware(next http.Handler) http.Handler {
 func createTables() {
 	queries := []string{
 		`CREATE EXTENSION IF NOT EXISTS pgcrypto;`,
-		`CREATE TABLE IF NOT EXISTS requests (
+		`DROP TABLE IF EXISTS requests CASCADE;`,
+		`CREATE TABLE IF NOT EXISTS scope_targets (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			type VARCHAR(50) NOT NULL,
 			mode VARCHAR(50) NOT NULL,
-			scope_target TEXT NOT NULL
+			scope_target TEXT NOT NULL,
+			active BOOLEAN DEFAULT false,
+			created_at TIMESTAMP DEFAULT NOW()
 		);`,
 		`CREATE TABLE IF NOT EXISTS amass_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -184,7 +225,7 @@ func createTables() {
 			command TEXT,
 			execution_time TEXT,
 			created_at TIMESTAMP DEFAULT NOW(),
-			request_id UUID REFERENCES requests(id) ON DELETE CASCADE
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
 		`CREATE TABLE IF NOT EXISTS dns_records (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,6 +275,20 @@ func createTables() {
 			raw_data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW(),
 			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS httpx_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE, 
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
 	}
 
@@ -469,7 +524,7 @@ func getAmassScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
-              FROM amass_scans WHERE request_id = $1`
+              FROM amass_scans WHERE scope_target_id = $1`
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to fetch scans for scope target ID %s: %v", scopeTargetID, err)
@@ -531,7 +586,7 @@ func runAmassScan(w http.ResponseWriter, r *http.Request) {
 	domain := payload.FQDN
 	wildcardDomain := fmt.Sprintf("*.%s", domain)
 
-	query := `SELECT id FROM requests WHERE type = 'Wildcard' AND scope_target = $1`
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
 	var requestID string
 	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&requestID)
 	if err != nil {
@@ -541,7 +596,7 @@ func runAmassScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scanID := uuid.New().String()
-	insertQuery := `INSERT INTO amass_scans (scan_id, domain, status, request_id) VALUES ($1, $2, $3, $4)`
+	insertQuery := `INSERT INTO amass_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
 	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", requestID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create scan record: %v", err)
@@ -801,8 +856,8 @@ func createScopeTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `INSERT INTO requests (type, mode, scope_target) VALUES ($1, $2, $3)`
-	_, err := dbPool.Exec(context.Background(), query, payload.Type, payload.Mode, payload.ScopeTarget)
+	query := `INSERT INTO scope_targets (type, mode, scope_target, active) VALUES ($1, $2, $3, $4)`
+	_, err := dbPool.Exec(context.Background(), query, payload.Type, payload.Mode, payload.ScopeTarget, payload.Active)
 	if err != nil {
 		log.Printf("Error inserting into database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -814,7 +869,7 @@ func createScopeTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func readScopeTarget(w http.ResponseWriter, r *http.Request) {
-	rows, err := dbPool.Query(context.Background(), `SELECT id, type, mode, scope_target FROM requests`)
+	rows, err := dbPool.Query(context.Background(), `SELECT id, type, mode, scope_target, active FROM scope_targets`)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -825,7 +880,7 @@ func readScopeTarget(w http.ResponseWriter, r *http.Request) {
 	var results []ResponsePayload
 	for rows.Next() {
 		var res ResponsePayload
-		if err := rows.Scan(&res.ID, &res.Type, &res.Mode, &res.ScopeTarget); err != nil {
+		if err := rows.Scan(&res.ID, &res.Type, &res.Mode, &res.ScopeTarget, &res.Active); err != nil {
 			log.Printf("Error scanning row: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -845,7 +900,7 @@ func deleteScopeTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `DELETE FROM requests WHERE id = $1`
+	query := `DELETE FROM scope_targets WHERE id = $1`
 	_, err := dbPool.Exec(context.Background(), query, id)
 	if err != nil {
 		log.Printf("Error deleting from database: %v", err)
@@ -1078,4 +1133,503 @@ func getServiceProviders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(providers)
+}
+
+func getLatestAmassSubdomains(scopeTargetID string) ([]string, error) {
+	query := `
+		WITH latest_scan AS (
+			SELECT scan_id 
+			FROM amass_scans 
+			WHERE scope_target_id = $1 
+			AND status = 'success'
+			ORDER BY created_at DESC 
+			LIMIT 1
+		)
+		SELECT subdomain 
+		FROM subdomains 
+		WHERE scan_id IN (SELECT scan_id FROM latest_scan)
+		ORDER BY subdomain ASC;
+	`
+
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch subdomains: %v", err)
+	}
+	defer rows.Close()
+
+	var subdomains []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			return nil, fmt.Errorf("failed to scan subdomain: %v", err)
+		}
+		subdomains = append(subdomains, subdomain)
+	}
+
+	return subdomains, nil
+}
+
+func runHttpxScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	// Get the scope target ID
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	// Get subdomains from latest amass scan
+	subdomains, err := getLatestAmassSubdomains(scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get subdomains: %v", err)
+	}
+
+	// If no subdomains found, use the main domain
+	domainsToScan := subdomains
+	if len(domainsToScan) == 0 {
+		domainsToScan = []string{domain}
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO httpx_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseHttpxScan(scanID, domain, domainsToScan)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseHttpxScan(scanID, domain string, domains []string) {
+	log.Printf("[INFO] Starting httpx scan for domain %s (scan ID: %s)", domain, scanID)
+	log.Printf("[DEBUG] Number of domains to scan: %d", len(domains))
+	log.Printf("[DEBUG] Domains to scan: %v", domains)
+	startTime := time.Now()
+
+	// Create a temporary file to store the domains
+	mountDir := "/tmp/httpx-mounts"
+	if err := os.MkdirAll(mountDir, 0755); err != nil {
+		log.Printf("[ERROR] Failed to create mount directory: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create mount directory: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Create the domains file directly in the mount directory
+	mountPath := filepath.Join(mountDir, "domains.txt")
+	domainsFile, err := os.Create(mountPath)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create domains file: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create domains file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer os.Remove(mountPath)
+
+	// Write domains to the file
+	for _, d := range domains {
+		if _, err := domainsFile.WriteString(d + "\n"); err != nil {
+			log.Printf("[ERROR] Failed to write domain %s to file: %v", d, err)
+			updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write to domains file: %v", err), "", time.Since(startTime).String())
+			return
+		}
+	}
+	domainsFile.Close()
+
+	// Set file permissions
+	if err := os.Chmod(mountPath, 0644); err != nil {
+		log.Printf("[ERROR] Failed to set file permissions: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to set file permissions: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Verify file contents
+	content, err := os.ReadFile(mountPath)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read domains file: %v", err)
+	} else {
+		log.Printf("[DEBUG] Domains file contents:\n%s", string(content))
+	}
+
+	// Run httpx with correct flags
+	cmd := exec.Command(
+		"httpx",
+		"-l", mountPath,
+		"-json",
+		"-status-code",
+		"-title",
+		"-tech-detect",
+		"-server",
+		"-content-length",
+		"-no-color",
+		"-timeout", "10",
+		"-retries", "2",
+		"-mc", "100,101,200,201,202,203,204,205,206,207,208,226,300,301,302,303,304,305,307,308,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511",
+		"-o", "/tmp/httpx-output.json",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] httpx scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+
+		// Try running httpx directly on a single domain for debugging
+		debugCmd := exec.Command(
+			"httpx",
+			"-u", "www.blueowl.xyz",
+			"-json",
+			"-status-code",
+			"-title",
+			"-tech-detect",
+			"-server",
+			"-content-length",
+			"-no-color",
+			"-timeout", "10",
+			"-mc", "100,101,200,201,202,203,204,205,206,207,208,226,300,301,302,303,304,305,307,308,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511",
+		)
+		var debugOut, debugErr bytes.Buffer
+		debugCmd.Stdout = &debugOut
+		debugCmd.Stderr = &debugErr
+		if debugErr := debugCmd.Run(); debugErr != nil {
+			log.Printf("[ERROR] Debug httpx command failed: %v", debugErr)
+			log.Printf("[ERROR] Debug stderr: %s", debugErr.Error())
+		} else {
+			log.Printf("[DEBUG] Debug httpx output: %s", debugOut.String())
+		}
+
+		updateHttpxScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	// Read the output file
+	outputContent, err := os.ReadFile("/tmp/httpx-output.json")
+	if err != nil {
+		log.Printf("[ERROR] Failed to read output file: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), cmd.String(), execTime)
+		return
+	}
+
+	result := string(outputContent)
+	log.Printf("[INFO] httpx scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+	if stderr.Len() > 0 {
+		log.Printf("[DEBUG] stderr output: %s", stderr.String())
+	}
+	if result == "" {
+		log.Printf("[WARN] No output from httpx scan")
+	} else {
+		log.Printf("[DEBUG] httpx output: %s", result)
+	}
+
+	updateHttpxScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateHttpxScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating httpx scan status for %s to %s", scanID, status)
+	query := `UPDATE httpx_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update httpx scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated httpx scan status for %s", scanID)
+	}
+}
+
+func getHttpxScanStatus(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scanID"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var scan HttpxScanStatus
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at FROM httpx_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+	)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch httpx scan status: %v", err)
+		http.Error(w, "Scan not found.", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":             scan.ID,
+		"scan_id":        scan.ScanID,
+		"domain":         scan.Domain,
+		"status":         scan.Status,
+		"result":         nullStringToString(scan.Result),
+		"error":          nullStringToString(scan.Error),
+		"stdout":         nullStringToString(scan.StdOut),
+		"stderr":         nullStringToString(scan.StdErr),
+		"command":        nullStringToString(scan.Command),
+		"execution_time": nullStringToString(scan.ExecTime),
+		"created_at":     scan.CreatedAt.Format(time.RFC3339),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func getHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	scopeTargetID := mux.Vars(r)["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+              FROM httpx_scans WHERE scope_target_id = $1`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch scans for scope target ID %s: %v", scopeTargetID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan HttpxScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":             scan.ID,
+			"scan_id":        scan.ScanID,
+			"domain":         scan.Domain,
+			"status":         scan.Status,
+			"result":         nullStringToString(scan.Result),
+			"error":          nullStringToString(scan.Error),
+			"stdout":         nullStringToString(scan.StdOut),
+			"stderr":         nullStringToString(scan.StdErr),
+			"command":        nullStringToString(scan.Command),
+			"execution_time": nullStringToString(scan.ExecTime),
+			"created_at":     scan.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(scans)
+}
+
+func activateScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		http.Error(w, "ID is required in the path", http.StatusBadRequest)
+		return
+	}
+
+	// Start a transaction
+	tx, err := dbPool.Begin(context.Background())
+	if err != nil {
+		log.Printf("[ERROR] Failed to begin transaction: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	// First, deactivate all scope targets
+	_, err = tx.Exec(context.Background(), `UPDATE scope_targets SET active = false`)
+	if err != nil {
+		log.Printf("[ERROR] Failed to deactivate scope targets: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Then, activate the selected scope target
+	result, err := tx.Exec(context.Background(), `UPDATE scope_targets SET active = true WHERE id = $1`, id)
+	if err != nil {
+		log.Printf("[ERROR] Failed to activate scope target: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Scope target not found", http.StatusNotFound)
+		return
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(context.Background()); err != nil {
+		log.Printf("[ERROR] Failed to commit transaction: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Scope target activated successfully"})
+}
+
+func getAllScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	scopeTargetID := mux.Vars(r)["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Query for Amass scans
+	amassQuery := `
+		SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+		FROM amass_scans 
+		WHERE scope_target_id = $1
+	`
+	amassRows, err := dbPool.Query(context.Background(), amassQuery, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch Amass scans: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer amassRows.Close()
+
+	// Query for httpx scans
+	httpxQuery := `
+		SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+		FROM httpx_scans 
+		WHERE scope_target_id = $1
+	`
+	httpxRows, err := dbPool.Query(context.Background(), httpxQuery, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch httpx scans: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer httpxRows.Close()
+
+	var allScans []ScanSummary
+
+	// Process Amass scans
+	for amassRows.Next() {
+		var scan AmassScanStatus
+		err := amassRows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan Amass row: %v", err)
+			continue
+		}
+
+		allScans = append(allScans, ScanSummary{
+			ID:        scan.ID,
+			ScanID:    scan.ScanID,
+			Domain:    scan.Domain,
+			Status:    scan.Status,
+			Result:    nullStringToString(scan.Result),
+			Error:     nullStringToString(scan.Error),
+			StdOut:    nullStringToString(scan.StdOut),
+			StdErr:    nullStringToString(scan.StdErr),
+			Command:   nullStringToString(scan.Command),
+			ExecTime:  nullStringToString(scan.ExecTime),
+			CreatedAt: scan.CreatedAt,
+			ScanType:  "amass",
+		})
+	}
+
+	// Process httpx scans
+	for httpxRows.Next() {
+		var scan HttpxScanStatus
+		err := httpxRows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan httpx row: %v", err)
+			continue
+		}
+
+		allScans = append(allScans, ScanSummary{
+			ID:        scan.ID,
+			ScanID:    scan.ScanID,
+			Domain:    scan.Domain,
+			Status:    scan.Status,
+			Result:    nullStringToString(scan.Result),
+			Error:     nullStringToString(scan.Error),
+			StdOut:    nullStringToString(scan.StdOut),
+			StdErr:    nullStringToString(scan.StdErr),
+			Command:   nullStringToString(scan.Command),
+			ExecTime:  nullStringToString(scan.ExecTime),
+			CreatedAt: scan.CreatedAt,
+			ScanType:  "httpx",
+		})
+	}
+
+	// Sort all scans by creation date, newest first
+	sort.Slice(allScans, func(i, j int) bool {
+		return allScans[i].CreatedAt.After(allScans[j].CreatedAt)
+	})
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(allScans)
 }
