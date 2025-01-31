@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -146,6 +147,21 @@ type GauScanStatus struct {
 	CreatedAt time.Time      `json:"created_at"`
 }
 
+type Sublist3rScanStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
 var dbPool *pgxpool.Pool
 
 func main() {
@@ -196,6 +212,9 @@ func main() {
 	r.HandleFunc("/gau/run", runGauScan).Methods("POST")
 	r.HandleFunc("/gau/{scanID}", getGauScanStatus).Methods("GET")
 	r.HandleFunc("/scopetarget/{id}/scans/gau", getGauScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/sublist3r/run", runSublist3rScan).Methods("POST")
+	r.HandleFunc("/sublist3r/{scan_id}", getSublist3rScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/sublist3r", getSublist3rScansForScopeTarget).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -310,6 +329,20 @@ func createTables() {
 		`CREATE TABLE IF NOT EXISTS gau_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL UNIQUE, 
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS sublist3r_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
 			domain TEXT NOT NULL,
 			status VARCHAR(50) NOT NULL,
 			result TEXT,
@@ -1941,5 +1974,262 @@ func getGauScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(scans)
+}
+
+func runSublist3rScan(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[INFO] Received request to run Sublist3r scan")
+	var requestData struct {
+		FQDN string `json:"fqdn"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		log.Printf("[ERROR] Failed to decode request body: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	domain := requestData.FQDN
+	wildcardDomain := "*." + domain
+	log.Printf("[INFO] Processing Sublist3r scan request for domain: %s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s: %v", domain, err)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+	log.Printf("[INFO] Found matching scope target ID: %s", scopeTargetID)
+
+	scanID := uuid.New().String()
+	log.Printf("[INFO] Generated new scan ID: %s", scanID)
+
+	insertQuery := `INSERT INTO sublist3r_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create Sublist3r scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("[INFO] Successfully created Sublist3r scan record in database")
+
+	go executeAndParseSublist3rScan(scanID, domain)
+
+	log.Printf("[INFO] Initiated Sublist3r scan with ID: %s for domain: %s", scanID, domain)
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseSublist3rScan(scanID, domain string) {
+	log.Printf("[INFO] Starting Sublist3r scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	cmd := exec.Command(
+		"docker", "run", "--rm",
+		"sublist3r:latest",
+		"-d", domain,
+		"-t", "50",
+		"-o", "/dev/stdout",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] Sublist3r scan failed: %v", err)
+		log.Printf("[ERROR] Stderr output: %s", stderr.String())
+		updateSublist3rScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	log.Printf("[INFO] Sublist3r scan completed in %s", execTime)
+
+	// Clean and filter the results
+	rawOutput := stdout.String()
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(rawOutput))
+	subdomainPattern := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
+
+	// Split the output into lines and process each line
+	var validSubdomains []string
+	lines := strings.Split(rawOutput, "\n")
+	log.Printf("[INFO] Processing %d lines of output", len(lines))
+
+	for _, line := range lines {
+		// Skip empty lines and banner lines
+		if strings.TrimSpace(line) == "" ||
+			strings.Contains(line, "Sublist3r") ||
+			strings.Contains(line, "==") ||
+			strings.Contains(line, "Total Unique Subdomains Found:") {
+			continue
+		}
+
+		// Clean the line by removing ANSI color codes and other control characters
+		cleanLine := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`).ReplaceAllString(line, "")
+		cleanLine = strings.TrimSpace(cleanLine)
+
+		// Extract subdomain using the pattern
+		if matches := subdomainPattern.FindStringSubmatch(cleanLine); len(matches) > 1 {
+			subdomain := matches[1]
+			// Verify it's a subdomain of the target domain
+			if strings.HasSuffix(subdomain, domain) {
+				validSubdomains = append(validSubdomains, subdomain)
+				log.Printf("[DEBUG] Found valid subdomain: %s", subdomain)
+			}
+		}
+	}
+
+	log.Printf("[INFO] Found %d raw subdomains before deduplication", len(validSubdomains))
+
+	// Remove duplicates
+	uniqueSubdomains := make(map[string]bool)
+	var finalSubdomains []string
+	for _, subdomain := range validSubdomains {
+		if !uniqueSubdomains[subdomain] {
+			uniqueSubdomains[subdomain] = true
+			finalSubdomains = append(finalSubdomains, subdomain)
+		}
+	}
+
+	// Sort the results for consistency
+	sort.Strings(finalSubdomains)
+
+	log.Printf("[INFO] Found %d unique subdomains after deduplication", len(finalSubdomains))
+
+	// Join the results with newlines
+	result := strings.Join(finalSubdomains, "\n")
+
+	log.Printf("[INFO] Updating scan status in database for scan ID: %s", scanID)
+	updateSublist3rScanStatus(scanID, "completed", result, stderr.String(), cmd.String(), execTime)
+	log.Printf("[INFO] Sublist3r scan completed successfully for domain %s (scan ID: %s)", domain, scanID)
+}
+
+func updateSublist3rScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Sublist3r scan status for scan ID %s to %s", scanID, status)
+	query := `UPDATE sublist3r_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update Sublist3r scan status: %v", err)
+		return
+	}
+	log.Printf("[INFO] Successfully updated Sublist3r scan status for scan ID %s", scanID)
+}
+
+func getSublist3rScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan Sublist3rScanStatus
+	query := `SELECT * FROM sublist3r_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getSublist3rScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	if scopeTargetID == "" {
+		log.Printf("[ERROR] No scope target ID provided")
+		http.Error(w, "No scope target ID provided", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT * FROM sublist3r_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan Sublist3rScanStatus
+		var scopeTargetID string
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scans)
 }

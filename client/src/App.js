@@ -4,6 +4,7 @@ import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.
 import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapModal } from './modals/amassModals.js';
 import { HttpxResultsModal } from './modals/httpxModals.js';
 import { GauResultsModal } from './modals/gauModals.js';
+import { Sublist3rResultsModal } from './modals/sublist3rModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
@@ -42,6 +43,8 @@ import initiateHttpxScan from './utils/initiateHttpxScan';
 import monitorHttpxScanStatus from './utils/monitorHttpxScanStatus';
 import initiateGauScan from './utils/initiateGauScan.js';
 import monitorGauScanStatus from './utils/monitorGauScanStatus.js';
+import initiateSublist3rScan from './utils/initiateSublist3rScan.js';
+import monitorSublist3rScanStatus from './utils/monitorSublist3rScanStatus.js';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -81,6 +84,11 @@ function App() {
   const [mostRecentGauScan, setMostRecentGauScan] = useState(null);
   const [isGauScanning, setIsGauScanning] = useState(false);
   const [showGauResultsModal, setShowGauResultsModal] = useState(false);
+  const [sublist3rScans, setSublist3rScans] = useState([]);
+  const [mostRecentSublist3rScanStatus, setMostRecentSublist3rScanStatus] = useState(null);
+  const [mostRecentSublist3rScan, setMostRecentSublist3rScan] = useState(null);
+  const [isSublist3rScanning, setIsSublist3rScanning] = useState(false);
+  const [showSublist3rResultsModal, setShowSublist3rResultsModal] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -136,6 +144,18 @@ function App() {
         setMostRecentGauScan,
         setIsGauScanning,
         setMostRecentGauScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorSublist3rScanStatus(
+        activeTarget,
+        setSublist3rScans,
+        setMostRecentSublist3rScan,
+        setIsSublist3rScanning,
+        setMostRecentSublist3rScanStatus
       );
     }
   }, [activeTarget]);
@@ -463,6 +483,17 @@ function App() {
     );
   };
 
+  const startSublist3rScan = () => {
+    initiateSublist3rScan(
+      activeTarget,
+      monitorSublist3rScanStatus,
+      setIsSublist3rScanning,
+      setSublist3rScans,
+      setMostRecentSublist3rScanStatus,
+      setMostRecentSublist3rScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -504,6 +535,9 @@ function App() {
 
   const handleCloseGauResultsModal = () => setShowGauResultsModal(false);
   const handleOpenGauResultsModal = () => setShowGauResultsModal(true);
+
+  const handleCloseSublist3rResultsModal = () => setShowSublist3rResultsModal(false);
+  const handleOpenSublist3rResultsModal = () => setShowSublist3rResultsModal(true);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -644,6 +678,12 @@ function App() {
         showGauResultsModal={showGauResultsModal}
         handleCloseGauResultsModal={handleCloseGauResultsModal}
         gauResults={mostRecentGauScan}
+      />
+
+      <Sublist3rResultsModal
+        showSublist3rResultsModal={showSublist3rResultsModal}
+        handleCloseSublist3rResultsModal={handleCloseSublist3rResultsModal}
+        sublist3rResults={mostRecentSublist3rScan}
       />
 
       <Fade in={fadeIn}>
@@ -811,7 +851,16 @@ function App() {
                 </Accordion>
                 <Row className="row-cols-5 g-3 mb-4">
                   {[
-                    { name: 'Sublist3r', link: 'https://github.com/aboul3la/Sublist3r' },
+                    { name: 'Sublist3r', 
+                      link: 'https://github.com/huntergregal/Sublist3r',
+                      isActive: true,
+                      status: mostRecentSublist3rScanStatus,
+                      isScanning: isSublist3rScanning,
+                      onScan: startSublist3rScan,
+                      onResults: handleOpenSublist3rResultsModal,
+                      resultCount: mostRecentSublist3rScan && mostRecentSublist3rScan.result ? 
+                        mostRecentSublist3rScan.result.split('\n').filter(line => line.trim()).length : 0
+                    },
                     { name: 'Assetfinder', link: 'https://github.com/tomnomnom/assetfinder' },
                     { 
                       name: 'GAU', 
