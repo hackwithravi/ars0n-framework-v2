@@ -132,6 +132,20 @@ type ScanSummary struct {
 	ScanType  string    `json:"scan_type"`
 }
 
+type GauScanStatus struct {
+	ID        string         `json:"id"`
+	ScanID    string         `json:"scan_id"`
+	Domain    string         `json:"domain"`
+	Status    string         `json:"status"`
+	Result    sql.NullString `json:"result,omitempty"`
+	Error     sql.NullString `json:"error,omitempty"`
+	StdOut    sql.NullString `json:"stdout,omitempty"`
+	StdErr    sql.NullString `json:"stderr,omitempty"`
+	Command   sql.NullString `json:"command,omitempty"`
+	ExecTime  sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+}
+
 var dbPool *pgxpool.Pool
 
 func main() {
@@ -179,6 +193,9 @@ func main() {
 	r.HandleFunc("/httpx/{scanID}", getHttpxScanStatus).Methods("GET")
 	r.HandleFunc("/scopetarget/{id}/scans/httpx", getHttpxScansForScopeTarget).Methods("GET")
 	r.HandleFunc("/scopetarget/{id}/scans", getAllScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/gau/run", runGauScan).Methods("POST")
+	r.HandleFunc("/gau/{scanID}", getGauScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/gau", getGauScansForScopeTarget).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -277,6 +294,20 @@ func createTables() {
 			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
 		);`,
 		`CREATE TABLE IF NOT EXISTS httpx_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE, 
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS gau_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL UNIQUE, 
 			domain TEXT NOT NULL,
@@ -1549,6 +1580,20 @@ func getAllScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	defer httpxRows.Close()
 
+	// Query for GAU scans
+	gauQuery := `
+		SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+		FROM gau_scans 
+		WHERE scope_target_id = $1
+	`
+	gauRows, err := dbPool.Query(context.Background(), gauQuery, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch GAU scans: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer gauRows.Close()
+
 	var allScans []ScanSummary
 
 	// Process Amass scans
@@ -1625,6 +1670,43 @@ func getAllScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Process GAU scans
+	for gauRows.Next() {
+		var scan GauScanStatus
+		err := gauRows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan GAU row: %v", err)
+			continue
+		}
+
+		allScans = append(allScans, ScanSummary{
+			ID:        scan.ID,
+			ScanID:    scan.ScanID,
+			Domain:    scan.Domain,
+			Status:    scan.Status,
+			Result:    nullStringToString(scan.Result),
+			Error:     nullStringToString(scan.Error),
+			StdOut:    nullStringToString(scan.StdOut),
+			StdErr:    nullStringToString(scan.StdErr),
+			Command:   nullStringToString(scan.Command),
+			ExecTime:  nullStringToString(scan.ExecTime),
+			CreatedAt: scan.CreatedAt,
+			ScanType:  "gau",
+		})
+	}
+
 	// Sort all scans by creation date, newest first
 	sort.Slice(allScans, func(i, j int) bool {
 		return allScans[i].CreatedAt.After(allScans[j].CreatedAt)
@@ -1632,4 +1714,232 @@ func getAllScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(allScans)
+}
+
+func runGauScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	// Get the scope target ID
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO gau_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseGauScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseGauScan(scanID, domain string) {
+	log.Printf("[INFO] Starting GAU scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	cmd := exec.Command(
+		"docker", "run", "--rm",
+		"sxcurity/gau:latest",
+		domain,
+		"--providers", "wayback",
+		"--json",
+		"--verbose",
+		"--subs",
+		"--threads", "10",
+		"--timeout", "60",
+		"--retries", "2",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] GAU scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		updateGauScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	result := stdout.String()
+	log.Printf("[INFO] GAU scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+	if stderr.Len() > 0 {
+		log.Printf("[DEBUG] stderr output: %s", stderr.String())
+	}
+
+	// Check if we have actual results
+	if result == "" {
+		// Try a second attempt with different flags
+		cmd = exec.Command(
+			"docker", "run", "--rm",
+			"sxcurity/gau:latest",
+			domain,
+			"--providers", "wayback,otx,urlscan",
+			"--subs",
+			"--threads", "5",
+			"--timeout", "30",
+			"--retries", "3",
+		)
+
+		log.Printf("[INFO] No results from first attempt, trying second attempt with command: %s", cmd.String())
+
+		stdout.Reset()
+		stderr.Reset()
+		err = cmd.Run()
+
+		if err == nil {
+			result = stdout.String()
+		}
+	}
+
+	if result == "" {
+		log.Printf("[WARN] No output from GAU scan after retries")
+		updateGauScanStatus(scanID, "completed", "", "No results found after multiple attempts", cmd.String(), execTime)
+	} else {
+		log.Printf("[DEBUG] GAU output: %s", result)
+		updateGauScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateGauScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating GAU scan status for %s to %s", scanID, status)
+	query := `UPDATE gau_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update GAU scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated GAU scan status for %s", scanID)
+	}
+}
+
+func getGauScanStatus(w http.ResponseWriter, r *http.Request) {
+	scanID := mux.Vars(r)["scanID"]
+	if scanID == "" {
+		http.Error(w, "Scan ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var scan GauScanStatus
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at FROM gau_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+	)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch GAU scan status: %v", err)
+		http.Error(w, "Scan not found.", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":             scan.ID,
+		"scan_id":        scan.ScanID,
+		"domain":         scan.Domain,
+		"status":         scan.Status,
+		"result":         nullStringToString(scan.Result),
+		"error":          nullStringToString(scan.Error),
+		"stdout":         nullStringToString(scan.StdOut),
+		"stderr":         nullStringToString(scan.StdErr),
+		"command":        nullStringToString(scan.Command),
+		"execution_time": nullStringToString(scan.ExecTime),
+		"created_at":     scan.CreatedAt.Format(time.RFC3339),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func getGauScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	scopeTargetID := mux.Vars(r)["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at 
+              FROM gau_scans WHERE scope_target_id = $1`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch scans for scope target ID %s: %v", scopeTargetID, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan GauScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":             scan.ID,
+			"scan_id":        scan.ScanID,
+			"domain":         scan.Domain,
+			"status":         scan.Status,
+			"result":         nullStringToString(scan.Result),
+			"error":          nullStringToString(scan.Error),
+			"stdout":         nullStringToString(scan.StdOut),
+			"stderr":         nullStringToString(scan.StdErr),
+			"command":        nullStringToString(scan.Command),
+			"execution_time": nullStringToString(scan.ExecTime),
+			"created_at":     scan.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(scans)
 }

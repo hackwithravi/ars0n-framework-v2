@@ -3,6 +3,7 @@ import AddScopeTargetModal from './modals/addScopeTargetModal.js';
 import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
 import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapModal } from './modals/amassModals.js';
 import { HttpxResultsModal } from './modals/httpxModals.js';
+import { GauResultsModal } from './modals/gauModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
@@ -39,6 +40,8 @@ import {
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
 import monitorHttpxScanStatus from './utils/monitorHttpxScanStatus';
+import initiateGauScan from './utils/initiateGauScan.js';
+import monitorGauScanStatus from './utils/monitorGauScanStatus.js';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -73,6 +76,11 @@ function App() {
   const [mostRecentHttpxScan, setMostRecentHttpxScan] = useState(null);
   const [isHttpxScanning, setIsHttpxScanning] = useState(false);
   const [showHttpxResultsModal, setShowHttpxResultsModal] = useState(false);
+  const [gauScans, setGauScans] = useState([]);
+  const [mostRecentGauScanStatus, setMostRecentGauScanStatus] = useState(null);
+  const [mostRecentGauScan, setMostRecentGauScan] = useState(null);
+  const [isGauScanning, setIsGauScanning] = useState(false);
+  const [showGauResultsModal, setShowGauResultsModal] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -116,6 +124,18 @@ function App() {
         setMostRecentHttpxScan,
         setIsHttpxScanning,
         setMostRecentHttpxScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorGauScanStatus(
+        activeTarget,
+        setGauScans,
+        setMostRecentGauScan,
+        setIsGauScanning,
+        setMostRecentGauScanStatus
       );
     }
   }, [activeTarget]);
@@ -369,6 +389,22 @@ function App() {
   };
 
   const handleActiveSelect = async (target) => {
+    // Reset all scan-related states
+    setAmassScans([]);
+    setDnsRecords([]);
+    setSubdomains([]);
+    setCloudDomains([]);
+    setMostRecentAmassScan(null);
+    setMostRecentAmassScanStatus(null);
+    setHttpxScans([]);
+    setMostRecentHttpxScan(null);
+    setMostRecentHttpxScanStatus(null);
+    setGauScans([]);
+    setMostRecentGauScan(null);
+    setMostRecentGauScanStatus(null);
+    setScanHistory([]);
+    setRawResults([]);
+    
     setActiveTarget(target);
     // Update the backend to set this target as active
     try {
@@ -416,6 +452,17 @@ function App() {
     );
   }
 
+  const startGauScan = () => {
+    initiateGauScan(
+      activeTarget,
+      monitorGauScanStatus,
+      setIsGauScanning,
+      setGauScans,
+      setMostRecentGauScanStatus,
+      setMostRecentGauScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -454,6 +501,9 @@ function App() {
 
   const handleCloseHttpxResultsModal = () => setShowHttpxResultsModal(false);
   const handleOpenHttpxResultsModal = () => setShowHttpxResultsModal(true);
+
+  const handleCloseGauResultsModal = () => setShowGauResultsModal(false);
+  const handleOpenGauResultsModal = () => setShowGauResultsModal(true);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -590,6 +640,12 @@ function App() {
         httpxResults={mostRecentHttpxScan}
       />
 
+      <GauResultsModal
+        showGauResultsModal={showGauResultsModal}
+        handleCloseGauResultsModal={handleCloseGauResultsModal}
+        gauResults={mostRecentGauScan}
+      />
+
       <Fade in={fadeIn}>
         <ManageScopeTargets
           handleOpen={handleOpen}
@@ -702,16 +758,21 @@ function App() {
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenScanHistoryModal}>&nbsp;&nbsp;&nbsp;Scan History&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenRawResultsModal}>&nbsp;&nbsp;&nbsp;Raw Results&nbsp;&nbsp;&nbsp;</Button>
-                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenInfraModal}>Infrastructure Map</Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenInfraModal}>Infrastructure</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenDNSRecordsModal}>&nbsp;&nbsp;&nbsp;DNS Records&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenSubdomainsModal}>&nbsp;&nbsp;&nbsp;Subdomains&nbsp;&nbsp;&nbsp;</Button>
                           <Button variant="outline-danger" className="flex-fill" onClick={handleOpenCloudDomainsModal}>&nbsp;&nbsp;Cloud Domains&nbsp;&nbsp;</Button>
                           <Button
                             variant="outline-danger"
+                            className="flex-fill"
                             onClick={startAmassScan}
                             disabled={isScanning || mostRecentAmassScanStatus === "pending" ? true : false}
                           >
-                            {isScanning || mostRecentAmassScanStatus === "pending" ? <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> : 'Scan ' + activeTarget.scope_target}
+                            <div className="btn-content">
+                              {isScanning || mostRecentAmassScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'Scan'}
+                            </div>
                           </Button>
                         </div>
                       </Card.Body>
@@ -752,7 +813,33 @@ function App() {
                   {[
                     { name: 'Sublist3r', link: 'https://github.com/aboul3la/Sublist3r' },
                     { name: 'Assetfinder', link: 'https://github.com/tomnomnom/assetfinder' },
-                    { name: 'GAU', link: 'https://github.com/lc/gau' },
+                    { 
+                      name: 'GAU', 
+                      link: 'https://github.com/lc/gau',
+                      isActive: true,
+                      status: mostRecentGauScanStatus,
+                      isScanning: isGauScanning,
+                      onScan: startGauScan,
+                      onResults: handleOpenGauResultsModal,
+                      resultCount: mostRecentGauScan && mostRecentGauScan.result ? 
+                        (() => {
+                          try {
+                            const results = mostRecentGauScan.result.split('\n')
+                              .filter(line => line.trim())
+                              .map(line => JSON.parse(line));
+                            const subdomainSet = new Set();
+                            results.forEach(result => {
+                              try {
+                                const url = new URL(result.url);
+                                subdomainSet.add(url.hostname);
+                              } catch (e) {}
+                            });
+                            return subdomainSet.size;
+                          } catch (e) {
+                            return 0;
+                          }
+                        })() : 0
+                    },
                     { name: 'CTL', link: 'https://github.com/chromium/ctlog' },
                     { name: 'Subfinder', link: 'https://github.com/projectdiscovery/subfinder' }
                   ].map((tool, index) => (
@@ -765,11 +852,42 @@ function App() {
                             </a>
                           </Card.Title>
                           <Card.Text className="text-white small fst-italic">
-                            A subdomain enumeration tool that uses OSINT techniques.
+                            {tool.name === 'GAU' ? 'Get All URLs - Fetch known URLs from AlienVault\'s Open Threat Exchange, the Wayback Machine, and Common Crawl.' : 'A subdomain enumeration tool that uses OSINT techniques.'}
                           </Card.Text>
+                          {tool.name === 'GAU' && (
+                            <Card.Text className="text-white small">
+                              Subdomains: {tool.resultCount || "0"}
+                            </Card.Text>
+                          )}
                           <div className="d-flex justify-content-between mt-auto gap-2">
-                            <Button variant="outline-danger" className="flex-fill">Results</Button>
-                            <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                            {tool.isActive ? (
+                              <>
+                                <Button 
+                                  variant="outline-danger" 
+                                  className="flex-fill" 
+                                  onClick={tool.onResults}
+                                >
+                                  Results
+                                </Button>
+                                <Button
+                                  variant="outline-danger"
+                                  className="flex-fill"
+                                  onClick={tool.onScan}
+                                  disabled={tool.isScanning || tool.status === "pending"}
+                                >
+                                  <div className="btn-content">
+                                    {tool.isScanning || tool.status === "pending" ? (
+                                      <div className="spinner"></div>
+                                    ) : 'Scan'}
+                                  </div>
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button variant="outline-danger" className="flex-fill" disabled>Results</Button>
+                                <Button variant="outline-danger" className="flex-fill" disabled>Scan</Button>
+                              </>
+                            )}
                           </div>
                         </Card.Body>
                       </Card>
@@ -906,11 +1024,11 @@ function App() {
                             onClick={startHttpxScan}
                             disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
                           >
-                            {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
-                              <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-                            ) : (
-                              'Scan'
-                            )}
+                            <div className="btn-content">
+                              {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'Scan'}
+                            </div>
                           </Button>
                         </div>
                       </Card.Body>
@@ -1047,11 +1165,11 @@ function App() {
                             onClick={startHttpxScan}
                             disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
                           >
-                            {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
-                              <span className="blinking">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Scanning...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-                            ) : (
-                              'Scan'
-                            )}
+                            <div className="btn-content">
+                              {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'Scan'}
+                            </div>
                           </Button>
                         </div>
                       </Card.Body>
