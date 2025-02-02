@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -162,6 +163,51 @@ type Sublist3rScanStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
+type AssetfinderScanStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
+type CTLScanStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
+type SubfinderScanStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
 var dbPool *pgxpool.Pool
 
 func main() {
@@ -215,6 +261,15 @@ func main() {
 	r.HandleFunc("/sublist3r/run", runSublist3rScan).Methods("POST")
 	r.HandleFunc("/sublist3r/{scan_id}", getSublist3rScanStatus).Methods("GET")
 	r.HandleFunc("/scopetarget/{id}/scans/sublist3r", getSublist3rScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/assetfinder/run", runAssetfinderScan).Methods("POST")
+	r.HandleFunc("/assetfinder/{scan_id}", getAssetfinderScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/assetfinder", getAssetfinderScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/ctl/run", runCTLScan).Methods("POST")
+	r.HandleFunc("/ctl/{scan_id}", getCTLScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/ctl", getCTLScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/subfinder/run", runSubfinderScan).Methods("POST")
+	r.HandleFunc("/subfinder/{scan_id}", getSubfinderScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/subfinder", getSubfinderScansForScopeTarget).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -341,6 +396,48 @@ func createTables() {
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
 		`CREATE TABLE IF NOT EXISTS sublist3r_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS assetfinder_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS ctl_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS subfinder_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL UNIQUE,
 			domain TEXT NOT NULL,
@@ -2237,6 +2334,643 @@ func getSublist3rScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			"execution_time":  nullStringToString(scan.ExecTime),
 			"created_at":      scan.CreatedAt.Format(time.RFC3339),
 			"scope_target_id": scopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scans)
+}
+
+func runAssetfinderScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO assetfinder_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseAssetfinderScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseAssetfinderScan(scanID, domain string) {
+	log.Printf("[INFO] Starting Assetfinder scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-assetfinder-1",
+		"assetfinder",
+		"--subs-only",
+		domain,
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] Assetfinder scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		updateAssetfinderScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	result := stdout.String()
+	log.Printf("[INFO] Assetfinder scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result == "" {
+		log.Printf("[WARN] No output from Assetfinder scan")
+		updateAssetfinderScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
+	} else {
+		log.Printf("[DEBUG] Assetfinder output: %s", result)
+		updateAssetfinderScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateAssetfinderScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Assetfinder scan status for %s to %s", scanID, status)
+	query := `UPDATE assetfinder_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update Assetfinder scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated Assetfinder scan status for %s", scanID)
+	}
+}
+
+func getAssetfinderScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan AssetfinderScanStatus
+	query := `SELECT * FROM assetfinder_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getAssetfinderScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	if scopeTargetID == "" {
+		log.Printf("[ERROR] No scope target ID provided")
+		http.Error(w, "No scope target ID provided", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT * FROM assetfinder_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan AssetfinderScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scan.ScopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scan.ScopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scans)
+}
+
+func runCTLScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO ctl_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseCTLScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseCTLScan(scanID, domain string) {
+	log.Printf("[INFO] Starting CTL scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	// Use HTTPS API instead of PostgreSQL
+	url := fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain)
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("[ERROR] CTL scan failed for %s: %v", domain, err)
+		updateCTLScanStatus(scanID, "error", "", err.Error(), url, time.Since(startTime).String())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("HTTP request failed with status code: %d", resp.StatusCode)
+		log.Printf("[ERROR] CTL scan failed for %s: %v", domain, err)
+		updateCTLScanStatus(scanID, "error", "", err.Error(), url, time.Since(startTime).String())
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read response body: %v", err)
+		updateCTLScanStatus(scanID, "error", "", err.Error(), url, time.Since(startTime).String())
+		return
+	}
+
+	type CertEntry struct {
+		NameValue string `json:"name_value"`
+	}
+
+	var entries []CertEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		log.Printf("[ERROR] Failed to parse JSON response: %v", err)
+		updateCTLScanStatus(scanID, "error", "", err.Error(), url, time.Since(startTime).String())
+		return
+	}
+
+	// Process and clean the results
+	var subdomains []string
+	seen := make(map[string]bool)
+	for _, entry := range entries {
+		// Split on newlines as some entries contain multiple domains
+		for _, line := range strings.Split(entry.NameValue, "\n") {
+			// Clean up the subdomain
+			subdomain := strings.TrimSpace(line)
+			subdomain = strings.TrimPrefix(subdomain, "*.")
+			subdomain = strings.ToLower(subdomain)
+
+			// Only include subdomains of our target domain
+			if strings.HasSuffix(subdomain, domain) && !seen[subdomain] {
+				seen[subdomain] = true
+				subdomains = append(subdomains, subdomain)
+			}
+		}
+	}
+
+	// Sort the results
+	sort.Strings(subdomains)
+	result := strings.Join(subdomains, "\n")
+
+	execTime := time.Since(startTime).String()
+	log.Printf("[INFO] CTL scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result == "" {
+		log.Printf("[WARN] No output from CTL scan")
+		updateCTLScanStatus(scanID, "completed", "", "No results found", url, execTime)
+	} else {
+		log.Printf("[DEBUG] CTL output: %s", result)
+		updateCTLScanStatus(scanID, "success", result, "", url, execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateCTLScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating CTL scan status for %s to %s", scanID, status)
+	query := `UPDATE ctl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update CTL scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated CTL scan status for %s", scanID)
+	}
+}
+
+func getCTLScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan CTLScanStatus
+	query := `SELECT * FROM ctl_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getCTLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	if scopeTargetID == "" {
+		log.Printf("[ERROR] No scope target ID provided")
+		http.Error(w, "No scope target ID provided", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT * FROM ctl_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan CTLScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scan.ScopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scan.ScopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scans)
+}
+
+func runSubfinderScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO subfinder_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseSubfinderScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseSubfinderScan(scanID, domain string) {
+	log.Printf("[INFO] Starting Subfinder scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-subfinder-1",
+		"subfinder",
+		"-d", domain,
+		"-silent",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] Subfinder scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		updateSubfinderScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	result := stdout.String()
+	log.Printf("[INFO] Subfinder scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result == "" {
+		log.Printf("[WARN] No output from Subfinder scan")
+		updateSubfinderScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
+	} else {
+		log.Printf("[DEBUG] Subfinder output: %s", result)
+		updateSubfinderScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateSubfinderScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Subfinder scan status for %s to %s", scanID, status)
+	query := `UPDATE subfinder_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update Subfinder scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated Subfinder scan status for %s", scanID)
+	}
+}
+
+func getSubfinderScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan SubfinderScanStatus
+	query := `SELECT * FROM subfinder_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getSubfinderScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	if scopeTargetID == "" {
+		log.Printf("[ERROR] No scope target ID provided")
+		http.Error(w, "No scope target ID provided", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT * FROM subfinder_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan SubfinderScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scan.ScopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scan.ScopeTargetID,
 		})
 	}
 

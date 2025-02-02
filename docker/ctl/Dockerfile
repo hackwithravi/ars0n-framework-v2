@@ -1,10 +1,10 @@
 FROM alpine:3.18
 
-RUN apk add --no-cache git bash curl openssl postgresql-client
+RUN apk add --no-cache git bash curl openssl jq
 
 WORKDIR /app
 
-RUN git clone https://github.com/hannob/tlshelpers.git . && \
-    chmod +x getsubdomain
+COPY getsubdomain.sh /usr/local/bin/getsubdomain
+RUN chmod +x /usr/local/bin/getsubdomain
 
-CMD ["./getsubdomain"] 
+ENTRYPOINT ["sleep", "infinity"] 
