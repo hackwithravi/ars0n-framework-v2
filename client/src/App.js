@@ -5,6 +5,8 @@ import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapM
 import { HttpxResultsModal } from './modals/httpxModals.js';
 import { GauResultsModal } from './modals/gauModals.js';
 import { Sublist3rResultsModal } from './modals/sublist3rModals.js';
+import { AssetfinderResultsModal } from './modals/assetfinderModals.js';
+import { SubfinderResultsModal } from './modals/subfinderModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
@@ -45,6 +47,13 @@ import initiateGauScan from './utils/initiateGauScan.js';
 import monitorGauScanStatus from './utils/monitorGauScanStatus.js';
 import initiateSublist3rScan from './utils/initiateSublist3rScan.js';
 import monitorSublist3rScanStatus from './utils/monitorSublist3rScanStatus.js';
+import initiateAssetfinderScan from './utils/initiateAssetfinderScan.js';
+import monitorAssetfinderScanStatus from './utils/monitorAssetfinderScanStatus.js';
+import initiateCTLScan from './utils/initiateCTLScan.js';
+import monitorCTLScanStatus from './utils/monitorCTLScanStatus.js';
+import initiateSubfinderScan from './utils/initiateSubfinderScan.js';
+import monitorSubfinderScanStatus from './utils/monitorSubfinderScanStatus.js';
+import { CTLResultsModal } from './modals/CTLResultsModal';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -89,6 +98,21 @@ function App() {
   const [mostRecentSublist3rScan, setMostRecentSublist3rScan] = useState(null);
   const [isSublist3rScanning, setIsSublist3rScanning] = useState(false);
   const [showSublist3rResultsModal, setShowSublist3rResultsModal] = useState(false);
+  const [assetfinderScans, setAssetfinderScans] = useState([]);
+  const [mostRecentAssetfinderScanStatus, setMostRecentAssetfinderScanStatus] = useState(null);
+  const [mostRecentAssetfinderScan, setMostRecentAssetfinderScan] = useState(null);
+  const [isAssetfinderScanning, setIsAssetfinderScanning] = useState(false);
+  const [showAssetfinderResultsModal, setShowAssetfinderResultsModal] = useState(false);
+  const [showCTLResultsModal, setShowCTLResultsModal] = useState(false);
+  const [ctlScans, setCTLScans] = useState([]);
+  const [isCTLScanning, setIsCTLScanning] = useState(false);
+  const [mostRecentCTLScan, setMostRecentCTLScan] = useState(null);
+  const [mostRecentCTLScanStatus, setMostRecentCTLScanStatus] = useState(null);
+  const [showSubfinderResultsModal, setShowSubfinderResultsModal] = useState(false);
+  const [subfinderScans, setSubfinderScans] = useState([]);
+  const [mostRecentSubfinderScanStatus, setMostRecentSubfinderScanStatus] = useState(null);
+  const [mostRecentSubfinderScan, setMostRecentSubfinderScan] = useState(null);
+  const [isSubfinderScanning, setIsSubfinderScanning] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -156,6 +180,42 @@ function App() {
         setMostRecentSublist3rScan,
         setIsSublist3rScanning,
         setMostRecentSublist3rScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorAssetfinderScanStatus(
+        activeTarget,
+        setAssetfinderScans,
+        setMostRecentAssetfinderScan,
+        setIsAssetfinderScanning,
+        setMostRecentAssetfinderScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorCTLScanStatus(
+        activeTarget,
+        setCTLScans,
+        setMostRecentCTLScan,
+        setIsCTLScanning,
+        setMostRecentCTLScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorSubfinderScanStatus(
+        activeTarget,
+        setSubfinderScans,
+        setMostRecentSubfinderScan,
+        setIsSubfinderScanning,
+        setMostRecentSubfinderScanStatus
       );
     }
   }, [activeTarget]);
@@ -494,6 +554,39 @@ function App() {
     );
   };
 
+  const startAssetfinderScan = () => {
+    initiateAssetfinderScan(
+      activeTarget,
+      monitorAssetfinderScanStatus,
+      setIsAssetfinderScanning,
+      setAssetfinderScans,
+      setMostRecentAssetfinderScanStatus,
+      setMostRecentAssetfinderScan
+    );
+  };
+
+  const startCTLScan = () => {
+    initiateCTLScan(
+      activeTarget,
+      monitorCTLScanStatus,
+      setIsCTLScanning,
+      setCTLScans,
+      setMostRecentCTLScanStatus,
+      setMostRecentCTLScan
+    );
+  };
+
+  const startSubfinderScan = () => {
+    initiateSubfinderScan(
+      activeTarget,
+      monitorSubfinderScanStatus,
+      setIsSubfinderScanning,
+      setSubfinderScans,
+      setMostRecentSubfinderScanStatus,
+      setMostRecentSubfinderScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -538,6 +631,15 @@ function App() {
 
   const handleCloseSublist3rResultsModal = () => setShowSublist3rResultsModal(false);
   const handleOpenSublist3rResultsModal = () => setShowSublist3rResultsModal(true);
+
+  const handleCloseAssetfinderResultsModal = () => setShowAssetfinderResultsModal(false);
+  const handleOpenAssetfinderResultsModal = () => setShowAssetfinderResultsModal(true);
+
+  const handleCloseCTLResultsModal = () => setShowCTLResultsModal(false);
+  const handleOpenCTLResultsModal = () => setShowCTLResultsModal(true);
+
+  const handleCloseSubfinderResultsModal = () => setShowSubfinderResultsModal(false);
+  const handleOpenSubfinderResultsModal = () => setShowSubfinderResultsModal(true);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -684,6 +786,24 @@ function App() {
         showSublist3rResultsModal={showSublist3rResultsModal}
         handleCloseSublist3rResultsModal={handleCloseSublist3rResultsModal}
         sublist3rResults={mostRecentSublist3rScan}
+      />
+
+      <AssetfinderResultsModal
+        showAssetfinderResultsModal={showAssetfinderResultsModal}
+        handleCloseAssetfinderResultsModal={handleCloseAssetfinderResultsModal}
+        assetfinderResults={mostRecentAssetfinderScan}
+      />
+
+      <CTLResultsModal
+        showCTLResultsModal={showCTLResultsModal}
+        handleCloseCTLResultsModal={handleCloseCTLResultsModal}
+        ctlResults={mostRecentCTLScan}
+      />
+
+      <SubfinderResultsModal
+        showSubfinderResultsModal={showSubfinderResultsModal}
+        handleCloseSubfinderResultsModal={handleCloseSubfinderResultsModal}
+        subfinderResults={mostRecentSubfinderScan}
       />
 
       <Fade in={fadeIn}>
@@ -861,7 +981,16 @@ function App() {
                       resultCount: mostRecentSublist3rScan && mostRecentSublist3rScan.result ? 
                         mostRecentSublist3rScan.result.split('\n').filter(line => line.trim()).length : 0
                     },
-                    { name: 'Assetfinder', link: 'https://github.com/tomnomnom/assetfinder' },
+                    { name: 'Assetfinder', 
+                      link: 'https://github.com/tomnomnom/assetfinder',
+                      isActive: true,
+                      status: mostRecentAssetfinderScanStatus,
+                      isScanning: isAssetfinderScanning,
+                      onScan: startAssetfinderScan,
+                      onResults: handleOpenAssetfinderResultsModal,
+                      resultCount: mostRecentAssetfinderScan && mostRecentAssetfinderScan.result ? 
+                        mostRecentAssetfinderScan.result.split('\n').filter(line => line.trim()).length : 0
+                    },
                     { 
                       name: 'GAU', 
                       link: 'https://github.com/lc/gau',
@@ -889,8 +1018,27 @@ function App() {
                           }
                         })() : 0
                     },
-                    { name: 'CTL', link: 'https://github.com/chromium/ctlog' },
-                    { name: 'Subfinder', link: 'https://github.com/projectdiscovery/subfinder' }
+                    { 
+                      name: 'CTL', 
+                      link: 'https://github.com/hannob/tlshelpers',
+                      isActive: true,
+                      status: mostRecentCTLScanStatus,
+                      isScanning: isCTLScanning,
+                      onScan: startCTLScan,
+                      onResults: handleOpenCTLResultsModal,
+                      resultCount: mostRecentCTLScan && mostRecentCTLScan.result ? 
+                        mostRecentCTLScan.result.split('\n').filter(line => line.trim()).length : 0
+                    },
+                    { name: 'Subfinder', 
+                      link: 'https://github.com/projectdiscovery/subfinder',
+                      isActive: true,
+                      status: mostRecentSubfinderScanStatus,
+                      isScanning: isSubfinderScanning,
+                      onScan: startSubfinderScan,
+                      onResults: handleOpenSubfinderResultsModal,
+                      resultCount: mostRecentSubfinderScan && mostRecentSubfinderScan.result ? 
+                        mostRecentSubfinderScan.result.split('\n').filter(line => line.trim()).length : 0
+                    }
                   ].map((tool, index) => (
                     <Col key={index}>
                       <Card className="shadow-sm h-100 text-center" style={{ minHeight: '250px' }}>
@@ -903,40 +1051,40 @@ function App() {
                           <Card.Text className="text-white small fst-italic">
                             {tool.name === 'GAU' ? 'Get All URLs - Fetch known URLs from AlienVault\'s Open Threat Exchange, the Wayback Machine, and Common Crawl.' : 'A subdomain enumeration tool that uses OSINT techniques.'}
                           </Card.Text>
-                          {tool.name === 'GAU' && (
-                            <Card.Text className="text-white small">
+                          <div className="mt-auto">
+                            <Card.Text className="text-white small mb-3">
                               Subdomains: {tool.resultCount || "0"}
                             </Card.Text>
-                          )}
-                          <div className="d-flex justify-content-between mt-auto gap-2">
-                            {tool.isActive ? (
-                              <>
-                                <Button 
-                                  variant="outline-danger" 
-                                  className="flex-fill" 
-                                  onClick={tool.onResults}
-                                >
-                                  Results
-                                </Button>
-                                <Button
-                                  variant="outline-danger"
-                                  className="flex-fill"
-                                  onClick={tool.onScan}
-                                  disabled={tool.isScanning || tool.status === "pending"}
-                                >
-                                  <div className="btn-content">
-                                    {tool.isScanning || tool.status === "pending" ? (
-                                      <div className="spinner"></div>
-                                    ) : 'Scan'}
-                                  </div>
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button variant="outline-danger" className="flex-fill" disabled>Results</Button>
-                                <Button variant="outline-danger" className="flex-fill" disabled>Scan</Button>
-                              </>
-                            )}
+                            <div className="d-flex justify-content-between gap-2">
+                              {tool.isActive ? (
+                                <>
+                                  <Button 
+                                    variant="outline-danger" 
+                                    className="flex-fill" 
+                                    onClick={tool.onResults}
+                                  >
+                                    Results
+                                  </Button>
+                                  <Button
+                                    variant="outline-danger"
+                                    className="flex-fill"
+                                    onClick={tool.onScan}
+                                    disabled={tool.isScanning || tool.status === "pending"}
+                                  >
+                                    <div className="btn-content">
+                                      {tool.isScanning || tool.status === "pending" ? (
+                                        <div className="spinner"></div>
+                                      ) : 'Scan'}
+                                    </div>
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <Button variant="outline-danger" className="flex-fill" disabled>Results</Button>
+                                  <Button variant="outline-danger" className="flex-fill" disabled>Scan</Button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </Card.Body>
                       </Card>

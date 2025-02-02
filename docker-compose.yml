@@ -1,45 +1,74 @@
+version: '3'
+
 services:
   api:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    build: ./server
     ports:
       - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://user:securepassword@db:5432/mydatabase
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/ars0n
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ars0n
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: always
+    restart: unless-stopped
 
   db:
-    image: postgres:14
+    image: postgres:latest
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: securepassword
-      POSTGRES_DB: mydatabase
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ars0n
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: always
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d mydatabase"]
-      interval: 2s
-      timeout: 3s
-      retries: 10
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
+    build: ./client
     ports:
       - "3000:3000"
-    environment:
-      - NODE_ENV=production
-    restart: always
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  assetfinder:
+    build: ./docker/assetfinder
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  sublist3r:
+    build: ./docker/sublist3r
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  ctl:
+    build: ./docker/ctl
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  subfinder:
+    build: ./docker/subfinder
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
 
 volumes:
   postgres_data:

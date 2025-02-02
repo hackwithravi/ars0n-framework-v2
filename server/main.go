@@ -2024,8 +2024,10 @@ func runSublist3rScan(w http.ResponseWriter, r *http.Request) {
 
 func executeAndParseSublist3rScan(scanID, domain string) {
 	log.Printf("[INFO] Starting Sublist3r scan for domain %s (scan ID: %s)", domain, scanID)
+	log.Printf("[DEBUG] Initializing scan variables and preparing command")
 	startTime := time.Now()
 
+	log.Printf("[DEBUG] Constructing docker command for Sublist3r")
 	cmd := exec.Command(
 		"docker", "run", "--rm",
 		"sublist3r:latest",
@@ -2034,46 +2036,76 @@ func executeAndParseSublist3rScan(scanID, domain string) {
 		"-o", "/dev/stdout",
 	)
 
-	log.Printf("[INFO] Executing command: %s", cmd.String())
+	log.Printf("[DEBUG] Docker command constructed: %s", cmd.String())
+	log.Printf("[DEBUG] Setting up stdout and stderr buffers")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	log.Printf("[INFO] Executing Sublist3r command at %s", time.Now().Format(time.RFC3339))
+	log.Printf("[DEBUG] Command working directory: %s", cmd.Dir)
+	log.Printf("[DEBUG] Command environment variables: %v", cmd.Env)
+
 	err := cmd.Run()
 	execTime := time.Since(startTime).String()
+	log.Printf("[INFO] Command execution completed in %s", execTime)
 
 	if err != nil {
-		log.Printf("[ERROR] Sublist3r scan failed: %v", err)
-		log.Printf("[ERROR] Stderr output: %s", stderr.String())
+		log.Printf("[ERROR] Sublist3r scan failed with error: %v", err)
+		log.Printf("[ERROR] Error type: %T", err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			log.Printf("[ERROR] Exit code: %d", exitErr.ExitCode())
+		}
+		log.Printf("[ERROR] Stderr output length: %d bytes", stderr.Len())
+		log.Printf("[ERROR] Stderr output content: %s", stderr.String())
+		log.Printf("[ERROR] Stdout output length: %d bytes", stdout.Len())
+		log.Printf("[DEBUG] Updating scan status to error state")
 		updateSublist3rScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
 		return
 	}
 
-	log.Printf("[INFO] Sublist3r scan completed in %s", execTime)
+	log.Printf("[INFO] Sublist3r scan completed successfully in %s", execTime)
+	log.Printf("[DEBUG] Processing scan output")
 
 	// Clean and filter the results
 	rawOutput := stdout.String()
 	log.Printf("[DEBUG] Raw output length: %d bytes", len(rawOutput))
+	log.Printf("[DEBUG] First 200 characters of raw output: %s", truncateString(rawOutput, 200))
+
+	log.Printf("[DEBUG] Compiling subdomain regex pattern")
 	subdomainPattern := regexp.MustCompile(`([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
 
 	// Split the output into lines and process each line
-	var validSubdomains []string
 	lines := strings.Split(rawOutput, "\n")
 	log.Printf("[INFO] Processing %d lines of output", len(lines))
 
-	for _, line := range lines {
+	var validSubdomains []string
+	var skippedLines int
+	var processedLines int
+
+	log.Printf("[DEBUG] Starting line-by-line processing")
+	for i, line := range lines {
+		if i%100 == 0 && i > 0 {
+			log.Printf("[DEBUG] Processed %d lines so far", i)
+		}
+
 		// Skip empty lines and banner lines
 		if strings.TrimSpace(line) == "" ||
 			strings.Contains(line, "Sublist3r") ||
 			strings.Contains(line, "==") ||
 			strings.Contains(line, "Total Unique Subdomains Found:") {
+			skippedLines++
 			continue
 		}
+
+		processedLines++
+		log.Printf("[TRACE] Processing line: %s", truncateString(line, 100))
 
 		// Clean the line by removing ANSI color codes and other control characters
 		cleanLine := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`).ReplaceAllString(line, "")
 		cleanLine = strings.TrimSpace(cleanLine)
+		log.Printf("[TRACE] Cleaned line: %s", truncateString(cleanLine, 100))
 
 		// Extract subdomain using the pattern
 		if matches := subdomainPattern.FindStringSubmatch(cleanLine); len(matches) > 1 {
@@ -2082,12 +2114,19 @@ func executeAndParseSublist3rScan(scanID, domain string) {
 			if strings.HasSuffix(subdomain, domain) {
 				validSubdomains = append(validSubdomains, subdomain)
 				log.Printf("[DEBUG] Found valid subdomain: %s", subdomain)
+			} else {
+				log.Printf("[TRACE] Skipping non-matching domain: %s", subdomain)
 			}
 		}
 	}
 
+	log.Printf("[INFO] Line processing complete - Stats:")
+	log.Printf("[INFO] Total lines: %d", len(lines))
+	log.Printf("[INFO] Processed lines: %d", processedLines)
+	log.Printf("[INFO] Skipped lines: %d", skippedLines)
 	log.Printf("[INFO] Found %d raw subdomains before deduplication", len(validSubdomains))
 
+	log.Printf("[DEBUG] Starting subdomain deduplication process")
 	// Remove duplicates
 	uniqueSubdomains := make(map[string]bool)
 	var finalSubdomains []string
@@ -2095,20 +2134,41 @@ func executeAndParseSublist3rScan(scanID, domain string) {
 		if !uniqueSubdomains[subdomain] {
 			uniqueSubdomains[subdomain] = true
 			finalSubdomains = append(finalSubdomains, subdomain)
+			log.Printf("[TRACE] Added unique subdomain: %s", subdomain)
+		} else {
+			log.Printf("[TRACE] Skipped duplicate subdomain: %s", subdomain)
 		}
 	}
 
 	// Sort the results for consistency
+	log.Printf("[DEBUG] Sorting final subdomains")
 	sort.Strings(finalSubdomains)
 
 	log.Printf("[INFO] Found %d unique subdomains after deduplication", len(finalSubdomains))
+	log.Printf("[DEBUG] First few subdomains in sorted order:")
+	for i, subdomain := range finalSubdomains {
+		if i < 5 {
+			log.Printf("[DEBUG] %d: %s", i+1, subdomain)
+		} else {
+			break
+		}
+	}
 
 	// Join the results with newlines
 	result := strings.Join(finalSubdomains, "\n")
+	log.Printf("[DEBUG] Final result string length: %d bytes", len(result))
 
 	log.Printf("[INFO] Updating scan status in database for scan ID: %s", scanID)
 	updateSublist3rScanStatus(scanID, "completed", result, stderr.String(), cmd.String(), execTime)
 	log.Printf("[INFO] Sublist3r scan completed successfully for domain %s (scan ID: %s)", domain, scanID)
+	log.Printf("[INFO] Total execution time including processing: %s", time.Since(startTime))
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func updateSublist3rScanStatus(scanID, status, result, stderr, command, execTime string) {
