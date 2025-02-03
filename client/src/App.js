@@ -11,18 +11,18 @@ import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-    Container,
-    Fade,
-    Card,
-    Row,
-    Col,
-    Button,
-    ListGroup,
-    Accordion,
-    Modal,
-    Table,
-    Toast,
-    ToastContainer,
+  Container,
+  Fade,
+  Card,
+  Row,
+  Col,
+  Button,
+  ListGroup,
+  Accordion,
+  Modal,
+  Table,
+  Toast,
+  ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -30,15 +30,15 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-    getTypeIcon,
-    getModeIcon,
-    getLastScanDate,
-    getLatestScanStatus,
-    getLatestScanTime,
-    getLatestScanId,
-    getExecutionTime,
-    getResultLength,
-    copyToClipboard,
+  getTypeIcon,
+  getModeIcon,
+  getLastScanDate,
+  getLatestScanStatus,
+  getLatestScanTime,
+  getLatestScanId,
+  getExecutionTime,
+  getResultLength,
+  copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
@@ -1258,6 +1258,138 @@ function App() {
                         <Card.Text className="text-white small fst-italic mb-4">
                           Each tool has discovered a list of subdomains. Review the results, consolidate them into a single list, and discover live web servers.
                         </Card.Text>
+                        <div className="d-flex justify-content-between mt-auto gap-2">
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill" 
+                            onClick={handleConsolidate}
+                            disabled={isConsolidating}
+                          >
+                            <div className="btn-content">
+                              {isConsolidating ? (
+                                <div className="spinner"></div>
+                              ) : 'Consolidate'}
+                            </div>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={handleOpenUniqueSubdomainsModal}
+                            disabled={consolidatedSubdomains.length === 0}
+                          >
+                            Unique Subdomains
+                          </Button>
+                          <Button
+                            variant="outline-danger"
+                            className="flex-fill"
+                            onClick={startHttpxScan}
+                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending" || consolidatedSubdomains.length === 0}
+                          >
+                            <div className="btn-content">
+                              {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'HTTPX Scan'}
+                            </div>
+                          </Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Live Web Servers</Button>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
+                <h4 className="text-secondary mb-3 fs-5">JavaScript/Link Discovery</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
+                <Row className="justify-content-between mb-4">
+                  {[
+                    { name: 'GoSpider', link: 'https://github.com/jaeles-project/gospider' },
+                    { name: 'Subdomainizer', link: 'https://github.com/nsonaniya2010/SubDomainizer' }
+                  ].map((tool, index) => (
+                    <Col md={6} className="mb-4" key={index}>
+                      <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
+                        <Card.Body className="d-flex flex-column">
+                          <Card.Title className="text-danger mb-3">
+                            <a href={tool.link} className="text-danger text-decoration-none">
+                              {tool.name}
+                            </a>
+                          </Card.Title>
+                          <Card.Text className="text-white small fst-italic">
+                            A fast web spider written in Go for web scraping and crawling.
+                          </Card.Text>
+                          <div className="d-flex justify-content-between mt-auto gap-2">
+                            <Button variant="outline-danger" className="flex-fill">Results</Button>
+                            <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                          </div>
+                        </Card.Body>
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 2</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
+                <Row className="mb-4">
+                  <Col>
+                    <Card className="shadow-sm h-100 text-center" style={{ minHeight: '200px' }}>
+                      <Card.Body className="d-flex flex-column">
+                        <Card.Title className="text-danger fs-4 mb-3">Subdomain Discovery Results</Card.Title>
+                        <Card.Text className="text-white small fst-italic mb-4">
+                          Each tool has discovered additional subdomains through JavaScript analysis and link discovery. Review the results, consolidate them into a single list, and discover live web servers.
+                        </Card.Text>
                         <div className="text-danger mb-4">
                           <div className="row">
                             <div className="col">
@@ -1271,7 +1403,6 @@ function App() {
                           </div>
                         </div>
                         <div className="d-flex justify-content-between mt-auto gap-2">
-                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
                           <Button 
                             variant="outline-danger" 
                             className="flex-fill" 
