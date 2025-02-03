@@ -11,18 +11,18 @@ import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-  Container,
-  Fade,
-  Card,
-  Row,
-  Col,
-  Button,
-  ListGroup,
-  Accordion,
-  Modal,
-  Table,
-  Toast,
-  ToastContainer,
+    Container,
+    Fade,
+    Card,
+    Row,
+    Col,
+    Button,
+    ListGroup,
+    Accordion,
+    Modal,
+    Table,
+    Toast,
+    ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -30,15 +30,15 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-  getTypeIcon,
-  getModeIcon,
-  getLastScanDate,
-  getLatestScanStatus,
-  getLatestScanTime,
-  getLatestScanId,
-  getExecutionTime,
-  getResultLength,
-  copyToClipboard,
+    getTypeIcon,
+    getModeIcon,
+    getLastScanDate,
+    getLatestScanStatus,
+    getLatestScanTime,
+    getLatestScanId,
+    getExecutionTime,
+    getResultLength,
+    copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
@@ -54,6 +54,10 @@ import monitorCTLScanStatus from './utils/monitorCTLScanStatus.js';
 import initiateSubfinderScan from './utils/initiateSubfinderScan.js';
 import monitorSubfinderScanStatus from './utils/monitorSubfinderScanStatus.js';
 import { CTLResultsModal } from './modals/CTLResultsModal';
+import { ReconResultsModal } from './modals/ReconResultsModal';
+import { UniqueSubdomainsModal } from './modals/UniqueSubdomainsModal';
+import consolidateSubdomains from './utils/consolidateSubdomains.js';
+import fetchConsolidatedSubdomains from './utils/fetchConsolidatedSubdomains.js';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -113,9 +117,15 @@ function App() {
   const [mostRecentSubfinderScanStatus, setMostRecentSubfinderScanStatus] = useState(null);
   const [mostRecentSubfinderScan, setMostRecentSubfinderScan] = useState(null);
   const [isSubfinderScanning, setIsSubfinderScanning] = useState(false);
+  const [showReconResultsModal, setShowReconResultsModal] = useState(false);
+  const [consolidatedSubdomains, setConsolidatedSubdomains] = useState([]);
+  const [isConsolidating, setIsConsolidating] = useState(false);
+  const [consolidatedCount, setConsolidatedCount] = useState(0);
+  const [showUniqueSubdomainsModal, setShowUniqueSubdomainsModal] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
+  const handleCloseUniqueSubdomainsModal = () => setShowUniqueSubdomainsModal(false);
 
   useEffect(() => {
     fetchScopeTargets();
@@ -130,8 +140,9 @@ function App() {
   useEffect(() => {
     if (activeTarget) {
       fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains);
+      fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
     }
-  }, [activeTarget, isScanning]);  
+  }, [activeTarget]);
 
   useEffect(() => {
     if (activeTarget) {
@@ -219,6 +230,28 @@ function App() {
       );
     }
   }, [activeTarget]);
+
+  // Add new useEffect for monitoring consolidated subdomains after scans complete
+  useEffect(() => {
+    if (activeTarget && (
+      mostRecentAmassScanStatus === 'success' ||
+      mostRecentSublist3rScanStatus === 'completed' ||
+      mostRecentAssetfinderScanStatus === 'success' ||
+      mostRecentGauScanStatus === 'success' ||
+      mostRecentCTLScanStatus === 'success' ||
+      mostRecentSubfinderScanStatus === 'success'
+    )) {
+      fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
+    }
+  }, [
+    activeTarget,
+    mostRecentAmassScanStatus,
+    mostRecentSublist3rScanStatus,
+    mostRecentAssetfinderScanStatus,
+    mostRecentGauScanStatus,
+    mostRecentCTLScanStatus,
+    mostRecentSubfinderScanStatus
+  ]);
 
   // Open Modal Handlers
 
@@ -484,6 +517,8 @@ function App() {
     setMostRecentGauScanStatus(null);
     setScanHistory([]);
     setRawResults([]);
+    setConsolidatedSubdomains([]);
+    setConsolidatedCount(0);
     
     setActiveTarget(target);
     // Update the backend to set this target as active
@@ -640,6 +675,27 @@ function App() {
 
   const handleCloseSubfinderResultsModal = () => setShowSubfinderResultsModal(false);
   const handleOpenSubfinderResultsModal = () => setShowSubfinderResultsModal(true);
+
+  const handleCloseReconResultsModal = () => setShowReconResultsModal(false);
+  const handleOpenReconResultsModal = () => setShowReconResultsModal(true);
+
+  const handleConsolidate = async () => {
+    if (!activeTarget) return;
+    
+    setIsConsolidating(true);
+    try {
+      const result = await consolidateSubdomains(activeTarget);
+      if (result) {
+        await fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
+      }
+    } catch (error) {
+      console.error('Error during consolidation:', error);
+    } finally {
+      setIsConsolidating(false);
+    }
+  };
+
+  const handleOpenUniqueSubdomainsModal = () => setShowUniqueSubdomainsModal(true);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -804,6 +860,24 @@ function App() {
         showSubfinderResultsModal={showSubfinderResultsModal}
         handleCloseSubfinderResultsModal={handleCloseSubfinderResultsModal}
         subfinderResults={mostRecentSubfinderScan}
+      />
+
+      <ReconResultsModal
+        showReconResultsModal={showReconResultsModal}
+        handleCloseReconResultsModal={handleCloseReconResultsModal}
+        amassResults={mostRecentAmassScan}
+        sublist3rResults={mostRecentSublist3rScan}
+        assetfinderResults={mostRecentAssetfinderScan}
+        gauResults={mostRecentGauScan}
+        ctlResults={mostRecentCTLScan}
+        subfinderResults={mostRecentSubfinderScan}
+      />
+
+      <UniqueSubdomainsModal
+        showUniqueSubdomainsModal={showUniqueSubdomainsModal}
+        handleCloseUniqueSubdomainsModal={handleCloseUniqueSubdomainsModal}
+        consolidatedSubdomains={consolidatedSubdomains}
+        setShowToast={setShowToast}
       />
 
       <Fade in={fadeIn}>
@@ -1146,7 +1220,7 @@ function App() {
                     </Col>
                   ))}
                 </Row>
-                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 1</h4>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Discover Live Web Servers</h4>
                 <Accordion data-bs-theme="dark" className="mb-3">
                   <Accordion.Item eventKey="0">
                     <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
@@ -1178,196 +1252,59 @@ function App() {
                 </Accordion>
                 <Row className="mb-4">
                   <Col>
-                    <Card className="shadow-sm">
-                      <Card.Body className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex flex-column">
-                          <Card.Title className="text-danger fs-4 mb-2">Consolidate Subdomains</Card.Title>
-                          <Card.Text className="text-white small fst-italic">
-                            Each tool has discovered a list of subdomains. Now, we need to consolidate those lists into a single list of unique subdomains.
-                          </Card.Text>
-                        </div>
-                        <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill">Results</Button>
-                          <Button variant="outline-danger" className="flex-fill">Consolidate</Button>
-                        </div>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
-                <Row className="mb-4">
-                  <Col>
-                    <Card className="shadow-sm">
-                      <Card.Body className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex flex-column">
-                          <Card.Title className="text-danger fs-4 mb-2">Live Web Servers</Card.Title>
-                          <Card.Text className="text-white small fst-italic">
-                            Now that we have a list of unique subdomains, we will use{' '}
-                            <a
-                              href="https://github.com/projectdiscovery/httpx"
-                              className="text-danger text-decoration-none"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              httpx
-                            </a>{' '}
-                            by Project Discovery to identify which of those domains are pointing to live web servers.
-                          </Card.Text>
-                        </div>
-                        <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Results</Button>
-                          <Button
-                            variant="outline-danger"
-                            className="flex-fill"
-                            onClick={startHttpxScan}
-                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
-                          >
-                            <div className="btn-content">
-                              {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
-                                <div className="spinner"></div>
-                              ) : 'Scan'}
+                    <Card className="shadow-sm h-100 text-center" style={{ minHeight: '200px' }}>
+                      <Card.Body className="d-flex flex-column">
+                        <Card.Title className="text-danger fs-4 mb-3">Subdomain Discovery Results</Card.Title>
+                        <Card.Text className="text-white small fst-italic mb-4">
+                          Each tool has discovered a list of subdomains. Review the results, consolidate them into a single list, and discover live web servers.
+                        </Card.Text>
+                        <div className="text-danger mb-4">
+                          <div className="row">
+                            <div className="col">
+                              <h3 className="mb-0">{consolidatedCount}</h3>
+                              <small className="text-white-50">Unique Subdomains</small>
                             </div>
-                          </Button>
-                        </div>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
-                <h4 className="text-secondary mb-3 fs-5">JavaScript/Link Discovery</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
-                <Row className="justify-content-between mb-4">
-                  {[
-                    { name: 'GoSpider', link: 'https://github.com/jaeles-project/gospider' },
-                    { name: 'Subdomainizer', link: 'https://github.com/nsonaniya2010/SubDomainizer' }
-                  ].map((tool, index) => (
-                    <Col md={6} className="mb-4" key={index}>
-                      <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
-                        <Card.Body className="d-flex flex-column">
-                          <Card.Title className="text-danger mb-3">
-                            <a href={tool.link} className="text-danger text-decoration-none">
-                              {tool.name}
-                            </a>
-                          </Card.Title>
-                          <Card.Text className="text-white small fst-italic">
-                            A fast web spider written in Go for web scraping and crawling.
-                          </Card.Text>
-                          <div className="d-flex justify-content-between mt-auto gap-2">
-                            <Button variant="outline-danger" className="flex-fill">Results</Button>
-                            <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                            <div className="col">
+                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <small className="text-white-50">Live Web Servers</small>
+                            </div>
                           </div>
-                        </Card.Body>
-                      </Card>
-                    </Col>
-                  ))}
-                </Row>
-                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 2</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
-                <Row className="mb-4">
-                  <Col>
-                    <Card className="shadow-sm">
-                      <Card.Body className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex flex-column">
-                          <Card.Title className="text-danger fs-4 mb-2">Consolidate Subdomains</Card.Title>
-                          <Card.Text className="text-white small fst-italic">
-                            Each tool has discovered a list of subdomains. Now, we need to consolidate those lists into a single list of unique subdomains.
-                          </Card.Text>
                         </div>
-                        <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill">Results</Button>
-                          <Button variant="outline-danger" className="flex-fill">Consolidate</Button>
-                        </div>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
-                <Row className="mb-4">
-                  <Col>
-                    <Card className="shadow-sm">
-                      <Card.Body className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex flex-column">
-                          <Card.Title className="text-danger fs-4 mb-2">Live Web Servers</Card.Title>
-                          <Card.Text className="text-white small fst-italic">
-                            Now that we have a list of unique subdomains, we will use{' '}
-                            <a
-                              href="https://github.com/projectdiscovery/httpx"
-                              className="text-danger text-decoration-none"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              httpx
-                            </a>{' '}
-                            by Project Discovery to identify which of those domains are pointing to live web servers.
-                          </Card.Text>
-                        </div>
-                        <div className="d-flex justify-content-between gap-2">
-                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Results</Button>
+                        <div className="d-flex justify-content-between mt-auto gap-2">
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill" 
+                            onClick={handleConsolidate}
+                            disabled={isConsolidating}
+                          >
+                            <div className="btn-content">
+                              {isConsolidating ? (
+                                <div className="spinner"></div>
+                              ) : 'Consolidate'}
+                            </div>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={handleOpenUniqueSubdomainsModal}
+                            disabled={consolidatedSubdomains.length === 0}
+                          >
+                            Unique Subdomains
+                          </Button>
                           <Button
                             variant="outline-danger"
                             className="flex-fill"
                             onClick={startHttpxScan}
-                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending"}
+                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending" || consolidatedSubdomains.length === 0}
                           >
                             <div className="btn-content">
                               {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
                                 <div className="spinner"></div>
-                              ) : 'Scan'}
+                              ) : 'HTTPX Scan'}
                             </div>
                           </Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Live Web Servers</Button>
                         </div>
                       </Card.Body>
                     </Card>

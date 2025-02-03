@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -270,6 +271,8 @@ func main() {
 	r.HandleFunc("/subfinder/run", runSubfinderScan).Methods("POST")
 	r.HandleFunc("/subfinder/{scan_id}", getSubfinderScanStatus).Methods("GET")
 	r.HandleFunc("/scopetarget/{id}/scans/subfinder", getSubfinderScansForScopeTarget).Methods("GET")
+	r.HandleFunc("/consolidate-subdomains/{id}", handleConsolidateSubdomains).Methods("GET")
+	r.HandleFunc("/consolidated-subdomains/{id}", getConsolidatedSubdomains).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -450,6 +453,13 @@ func createTables() {
 			execution_time TEXT,
 			created_at TIMESTAMP DEFAULT NOW(),
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS consolidated_subdomains (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
+			subdomain TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW(),
+			UNIQUE(scope_target_id, subdomain)
 		);`,
 	}
 
@@ -1373,16 +1383,14 @@ func runHttpxScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go executeAndParseHttpxScan(scanID, domain, domainsToScan)
+	go executeAndParseHttpxScan(scanID, domain)
 
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
-func executeAndParseHttpxScan(scanID, domain string, domains []string) {
+func executeAndParseHttpxScan(scanID, domain string) {
 	log.Printf("[INFO] Starting httpx scan for domain %s (scan ID: %s)", domain, scanID)
-	log.Printf("[DEBUG] Number of domains to scan: %d", len(domains))
-	log.Printf("[DEBUG] Domains to scan: %v", domains)
 	startTime := time.Now()
 
 	// Create a temporary file to store the domains
@@ -1392,6 +1400,46 @@ func executeAndParseHttpxScan(scanID, domain string, domains []string) {
 		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create mount directory: %v", err), "", time.Since(startTime).String())
 		return
 	}
+
+	// Get scope target ID from scan ID
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(),
+		`SELECT scope_target_id FROM httpx_scans WHERE scan_id = $1`,
+		scanID).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scope target ID: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Get consolidated subdomains
+	rows, err := dbPool.Query(context.Background(),
+		`SELECT subdomain FROM consolidated_subdomains WHERE scope_target_id = $1 ORDER BY subdomain ASC`,
+		scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get consolidated subdomains: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get consolidated subdomains: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer rows.Close()
+
+	var subdomains []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
+			continue
+		}
+		subdomains = append(subdomains, subdomain)
+	}
+
+	if len(subdomains) == 0 {
+		log.Printf("[WARN] No consolidated subdomains found for scope target ID: %s", scopeTargetID)
+		updateHttpxScanStatus(scanID, "error", "", "No consolidated subdomains found to scan", "", time.Since(startTime).String())
+		return
+	}
+
+	log.Printf("[INFO] Found %d consolidated subdomains to scan", len(subdomains))
 
 	// Create the domains file directly in the mount directory
 	mountPath := filepath.Join(mountDir, "domains.txt")
@@ -1404,9 +1452,9 @@ func executeAndParseHttpxScan(scanID, domain string, domains []string) {
 	defer os.Remove(mountPath)
 
 	// Write domains to the file
-	for _, d := range domains {
-		if _, err := domainsFile.WriteString(d + "\n"); err != nil {
-			log.Printf("[ERROR] Failed to write domain %s to file: %v", d, err)
+	for _, subdomain := range subdomains {
+		if _, err := domainsFile.WriteString(subdomain + "\n"); err != nil {
+			log.Printf("[ERROR] Failed to write subdomain %s to file: %v", subdomain, err)
 			updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write to domains file: %v", err), "", time.Since(startTime).String())
 			return
 		}
@@ -1457,31 +1505,6 @@ func executeAndParseHttpxScan(scanID, domain string, domains []string) {
 	if err != nil {
 		log.Printf("[ERROR] httpx scan failed for %s: %v", domain, err)
 		log.Printf("[ERROR] stderr output: %s", stderr.String())
-
-		// Try running httpx directly on a single domain for debugging
-		debugCmd := exec.Command(
-			"httpx",
-			"-u", "www.blueowl.xyz",
-			"-json",
-			"-status-code",
-			"-title",
-			"-tech-detect",
-			"-server",
-			"-content-length",
-			"-no-color",
-			"-timeout", "10",
-			"-mc", "100,101,200,201,202,203,204,205,206,207,208,226,300,301,302,303,304,305,307,308,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511",
-		)
-		var debugOut, debugErr bytes.Buffer
-		debugCmd.Stdout = &debugOut
-		debugCmd.Stderr = &debugErr
-		if debugErr := debugCmd.Run(); debugErr != nil {
-			log.Printf("[ERROR] Debug httpx command failed: %v", debugErr)
-			log.Printf("[ERROR] Debug stderr: %s", debugErr.Error())
-		} else {
-			log.Printf("[DEBUG] Debug httpx output: %s", debugOut.String())
-		}
-
 		updateHttpxScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
 		return
 	}
@@ -1500,13 +1523,15 @@ func executeAndParseHttpxScan(scanID, domain string, domains []string) {
 	if stderr.Len() > 0 {
 		log.Printf("[DEBUG] stderr output: %s", stderr.String())
 	}
+
 	if result == "" {
 		log.Printf("[WARN] No output from httpx scan")
+		updateHttpxScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
 	} else {
 		log.Printf("[DEBUG] httpx output: %s", result)
+		updateHttpxScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
 	}
 
-	updateHttpxScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
 	log.Printf("[INFO] Scan status updated for scan %s", scanID)
 }
 
@@ -2976,4 +3001,304 @@ func getSubfinderScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scans)
+}
+
+func consolidateSubdomains(scopeTargetID string) ([]string, error) {
+	log.Printf("[INFO] Starting consolidation for scope target ID: %s", scopeTargetID)
+
+	var baseDomain string
+	err := dbPool.QueryRow(context.Background(), `
+		SELECT TRIM(LEADING '*.' FROM scope_target) 
+			FROM scope_targets 
+			WHERE id = $1`, scopeTargetID).Scan(&baseDomain)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get base domain: %v", err)
+		return nil, fmt.Errorf("failed to get base domain: %v", err)
+	}
+	log.Printf("[INFO] Base domain for consolidation: %s", baseDomain)
+
+	uniqueSubdomains := make(map[string]bool)
+	toolResults := make(map[string]int)
+
+	// Special handling for Amass - get from subdomains table
+	amassQuery := `
+		SELECT s.subdomain 
+		FROM subdomains s 
+		JOIN amass_scans a ON s.scan_id = a.scan_id 
+		WHERE a.scope_target_id = $1 
+			AND a.status = 'success'
+			AND a.created_at = (
+				SELECT MAX(created_at) 
+				FROM amass_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'success'
+			)`
+
+	log.Printf("[DEBUG] Processing results from amass using subdomains table")
+	amassRows, err := dbPool.Query(context.Background(), amassQuery, scopeTargetID)
+	if err != nil && err != pgx.ErrNoRows {
+		log.Printf("[ERROR] Failed to get Amass subdomains: %v", err)
+	} else {
+		count := 0
+		for amassRows.Next() {
+			var subdomain string
+			if err := amassRows.Scan(&subdomain); err != nil {
+				log.Printf("[ERROR] Failed to scan Amass subdomain: %v", err)
+				continue
+			}
+			if strings.HasSuffix(subdomain, baseDomain) {
+				if !uniqueSubdomains[subdomain] {
+					log.Printf("[DEBUG] Found new subdomain from amass: %s", subdomain)
+					count++
+				}
+				uniqueSubdomains[subdomain] = true
+			}
+		}
+		amassRows.Close()
+		toolResults["amass"] = count
+		log.Printf("[INFO] Found %d new unique subdomains from amass", count)
+	}
+
+	// Handle other tools
+	queries := []struct {
+		query string
+		table string
+	}{
+		{
+			query: `
+				SELECT result 
+				FROM sublist3r_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'completed' 
+					AND result IS NOT NULL 
+					AND result != '' 
+				ORDER BY created_at DESC 
+				LIMIT 1`,
+			table: "sublist3r",
+		},
+		{
+			query: `
+				SELECT result 
+				FROM assetfinder_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'success' 
+					AND result IS NOT NULL 
+					AND result != '' 
+				ORDER BY created_at DESC 
+				LIMIT 1`,
+			table: "assetfinder",
+		},
+		{
+			query: `
+				SELECT result 
+				FROM ctl_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'success' 
+					AND result IS NOT NULL 
+					AND result != '' 
+				ORDER BY created_at DESC 
+				LIMIT 1`,
+			table: "ctl",
+		},
+		{
+			query: `
+				SELECT result 
+				FROM subfinder_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'success' 
+					AND result IS NOT NULL 
+					AND result != '' 
+				ORDER BY created_at DESC 
+				LIMIT 1`,
+			table: "subfinder",
+		},
+		{
+			query: `
+				SELECT result 
+				FROM gau_scans 
+				WHERE scope_target_id = $1 
+					AND status = 'success' 
+					AND result IS NOT NULL 
+					AND result != '' 
+				ORDER BY created_at DESC 
+				LIMIT 1`,
+			table: "gau",
+		},
+	}
+
+	for _, q := range queries {
+		log.Printf("[DEBUG] Processing results from %s", q.table)
+		var result sql.NullString
+		err := dbPool.QueryRow(context.Background(), q.query, scopeTargetID).Scan(&result)
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				log.Printf("[DEBUG] No results found for %s", q.table)
+				continue
+			}
+			log.Printf("[ERROR] Failed to get results from %s: %v", q.table, err)
+			continue
+		}
+
+		if !result.Valid || result.String == "" {
+			log.Printf("[DEBUG] No valid results found for %s", q.table)
+			continue
+		}
+
+		count := 0
+		if q.table == "gau" {
+			lines := strings.Split(result.String, "\n")
+			log.Printf("[DEBUG] Processing %d lines from GAU", len(lines))
+			for i, line := range lines {
+				if line == "" {
+					continue
+				}
+				var gauResult struct {
+					URL string `json:"url"`
+				}
+				if err := json.Unmarshal([]byte(line), &gauResult); err != nil {
+					log.Printf("[ERROR] Failed to parse GAU result line %d: %v", i, err)
+					continue
+				}
+				if gauResult.URL == "" {
+					continue
+				}
+				parsedURL, err := url.Parse(gauResult.URL)
+				if err != nil {
+					log.Printf("[ERROR] Failed to parse URL %s: %v", gauResult.URL, err)
+					continue
+				}
+				hostname := parsedURL.Hostname()
+				if strings.HasSuffix(hostname, baseDomain) {
+					if !uniqueSubdomains[hostname] {
+						log.Printf("[DEBUG] Found new subdomain from GAU: %s", hostname)
+						count++
+					}
+					uniqueSubdomains[hostname] = true
+				}
+			}
+		} else {
+			lines := strings.Split(result.String, "\n")
+			log.Printf("[DEBUG] Processing %d lines from %s", len(lines), q.table)
+			for _, line := range lines {
+				subdomain := strings.TrimSpace(line)
+				if subdomain == "" {
+					continue
+				}
+				if strings.HasSuffix(subdomain, baseDomain) {
+					if !uniqueSubdomains[subdomain] {
+						log.Printf("[DEBUG] Found new subdomain from %s: %s", q.table, subdomain)
+						count++
+					}
+					uniqueSubdomains[subdomain] = true
+				}
+			}
+		}
+		toolResults[q.table] = count
+		log.Printf("[INFO] Found %d new unique subdomains from %s", count, q.table)
+	}
+
+	var consolidatedSubdomains []string
+	for subdomain := range uniqueSubdomains {
+		consolidatedSubdomains = append(consolidatedSubdomains, subdomain)
+	}
+	sort.Strings(consolidatedSubdomains)
+
+	log.Printf("[INFO] Tool contribution breakdown:")
+	for tool, count := range toolResults {
+		log.Printf("- %s: %d subdomains", tool, count)
+	}
+	log.Printf("[INFO] Total unique subdomains found: %d", len(consolidatedSubdomains))
+
+	tx, err := dbPool.Begin(context.Background())
+	if err != nil {
+		log.Printf("[ERROR] Failed to begin transaction: %v", err)
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback(context.Background())
+
+	_, err = tx.Exec(context.Background(), `DELETE FROM consolidated_subdomains WHERE scope_target_id = $1`, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to delete old consolidated subdomains: %v", err)
+		return nil, fmt.Errorf("failed to delete old consolidated subdomains: %v", err)
+	}
+	log.Printf("[INFO] Cleared old consolidated subdomains")
+
+	for _, subdomain := range consolidatedSubdomains {
+		_, err = tx.Exec(context.Background(),
+			`INSERT INTO consolidated_subdomains (scope_target_id, subdomain) VALUES ($1, $2)
+			ON CONFLICT (scope_target_id, subdomain) DO NOTHING`,
+			scopeTargetID, subdomain)
+		if err != nil {
+			log.Printf("[ERROR] Failed to insert consolidated subdomain %s: %v", subdomain, err)
+			return nil, fmt.Errorf("failed to insert consolidated subdomain: %v", err)
+		}
+	}
+	log.Printf("[INFO] Inserted %d consolidated subdomains into database", len(consolidatedSubdomains))
+
+	if err := tx.Commit(context.Background()); err != nil {
+		log.Printf("[ERROR] Failed to commit transaction: %v", err)
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+	log.Printf("[INFO] Successfully completed consolidation")
+
+	return consolidatedSubdomains, nil
+}
+
+func handleConsolidateSubdomains(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	consolidatedSubdomains, err := consolidateSubdomains(scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to consolidate subdomains: %v", err)
+		http.Error(w, "Failed to consolidate subdomains", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":      len(consolidatedSubdomains),
+		"subdomains": consolidatedSubdomains,
+	})
+}
+
+func getConsolidatedSubdomains(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+	if scopeTargetID == "" {
+		http.Error(w, "Scope target ID is required", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := dbPool.Query(context.Background(),
+		`SELECT subdomain FROM consolidated_subdomains 
+		WHERE scope_target_id = $1 
+		ORDER BY subdomain ASC`, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get consolidated subdomains: %v", err)
+		http.Error(w, "Failed to get consolidated subdomains", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var subdomains []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		subdomains = append(subdomains, subdomain)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":      len(subdomains),
+		"subdomains": subdomains,
+	})
 }
