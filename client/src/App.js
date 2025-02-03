@@ -1403,6 +1403,7 @@ function App() {
                           </div>
                         </div>
                         <div className="d-flex justify-content-between mt-auto gap-2">
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
                           <Button 
                             variant="outline-danger" 
                             className="flex-fill" 

@@ -17,3 +17,18 @@ Ars0n Framework v2
 <p align="center">
 Coming DEFCON 2025 (hopefully... 🙏)
 </p>
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0). This means:
+
+- You can freely use, modify, and distribute this software
+- If you distribute modified versions, you must:
+  - Make your source code available
+  - Include the original copyright notice
+  - Use the same license (GPL-3.0)
+  - Document your changes
+
+For more details, see the [LICENSE](LICENSE) file in the repository.
+
+Copyright (C) 2024 Ars0n Framework

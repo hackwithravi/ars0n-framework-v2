@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Table } from 'react-bootstrap';
+import { Modal, Table, Badge } from 'react-bootstrap';
 
 export const ReconResultsModal = ({
     showReconResultsModal,
@@ -36,86 +36,105 @@ export const ReconResultsModal = ({
         return results.result.split('\n').filter(line => line.trim()).length;
     };
 
-    const getAmassSubdomainCount = (results) => {
-        if (!results || !results.result) return 0;
+    const formatExecutionTime = (timeStr) => {
+        if (!timeStr) return 'N/A';
         
-        // Get the base domain from the scan domain
-        const baseDomain = results.domain;
-        if (!baseDomain) return 0;
+        // Convert Go duration format to readable format
+        try {
+            // Remove 's' suffix if present
+            timeStr = timeStr.replace('s', '');
+            
+            // Convert to number (seconds)
+            const totalSeconds = parseFloat(timeStr);
+            
+            if (isNaN(totalSeconds)) return timeStr;
 
-        // Split the results into lines and count only valid subdomains
-        const lines = results.result.split('\n');
-        const uniqueSubdomains = new Set();
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = Math.floor(totalSeconds % 60);
+            const milliseconds = Math.round((totalSeconds % 1) * 1000);
 
-        lines.forEach(line => {
-            // Skip empty lines
-            if (!line.trim()) return;
-
-            // If the line contains a subdomain (ends with the base domain), add it
-            if (line.includes(baseDomain)) {
-                // Extract potential subdomain from the line
-                const match = line.match(/([a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-                if (match && match[1].endsWith(baseDomain)) {
-                    uniqueSubdomains.add(match[1]);
-                }
+            let formattedTime = '';
+            
+            if (hours > 0) formattedTime += `${hours}h `;
+            if (minutes > 0) formattedTime += `${minutes}m `;
+            if (seconds > 0 || milliseconds > 0) {
+                formattedTime += `${seconds}`;
+                if (milliseconds > 0) formattedTime += `.${milliseconds.toString().padStart(3, '0')}`;
+                formattedTime += 's';
             }
-        });
 
-        return uniqueSubdomains.size;
+            return formattedTime.trim() || '0s';
+        } catch (e) {
+            return timeStr;
+        }
     };
+
+    const getStatusBadge = (status) => {
+        if (!status) return <Badge bg="secondary">N/A</Badge>;
+
+        const statusColors = {
+            'success': 'success',
+            'completed': 'success',
+            'error': 'danger',
+            'pending': 'warning'
+        };
+
+        return (
+            <Badge bg={statusColors[status] || 'secondary'}>
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+            </Badge>
+        );
+    };
+
+    const tools = [
+        { name: 'Amass', results: amassResults, link: 'https://github.com/owasp-amass/amass' },
+        { name: 'Sublist3r', results: sublist3rResults, link: 'https://github.com/aboul3la/Sublist3r' },
+        { name: 'Assetfinder', results: assetfinderResults, link: 'https://github.com/tomnomnom/assetfinder' },
+        { name: 'GAU', results: gauResults, link: 'https://github.com/lc/gau', tool: 'gau' },
+        { name: 'CTL', results: ctlResults, link: 'https://github.com/pdiscoveryio/ctl' },
+        { name: 'Subfinder', results: subfinderResults, link: 'https://github.com/projectdiscovery/subfinder' }
+    ];
 
     return (
         <Modal data-bs-theme="dark" show={showReconResultsModal} onHide={handleCloseReconResultsModal} size="lg">
             <Modal.Header closeButton>
-                <Modal.Title className="text-danger">Recon Results</Modal.Title>
+                <Modal.Title className="text-danger">Reconnaissance Results</Modal.Title>
             </Modal.Header>
             <Modal.Body>
                 <Table striped bordered hover>
                     <thead>
                         <tr>
                             <th>Tool</th>
-                            <th>Status</th>
-                            <th>Subdomains Found</th>
-                            <th>Execution Time</th>
+                            <th className="text-center">Status</th>
+                            <th className="text-center">Subdomains</th>
+                            <th className="text-center">Execution Time</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td>Amass</td>
-                            <td>{amassResults?.status || "N/A"}</td>
-                            <td>{getAmassSubdomainCount(amassResults)}</td>
-                            <td>{amassResults?.execution_time || "N/A"}</td>
-                        </tr>
-                        <tr>
-                            <td>Sublist3r</td>
-                            <td>{sublist3rResults?.status || "N/A"}</td>
-                            <td>{getSubdomainCount(sublist3rResults)}</td>
-                            <td>{sublist3rResults?.execution_time || "N/A"}</td>
-                        </tr>
-                        <tr>
-                            <td>Assetfinder</td>
-                            <td>{assetfinderResults?.status || "N/A"}</td>
-                            <td>{getSubdomainCount(assetfinderResults)}</td>
-                            <td>{assetfinderResults?.execution_time || "N/A"}</td>
-                        </tr>
-                        <tr>
-                            <td>GAU</td>
-                            <td>{gauResults?.status || "N/A"}</td>
-                            <td>{getSubdomainCount(gauResults, 'gau')}</td>
-                            <td>{gauResults?.execution_time || "N/A"}</td>
-                        </tr>
-                        <tr>
-                            <td>CTL</td>
-                            <td>{ctlResults?.status || "N/A"}</td>
-                            <td>{getSubdomainCount(ctlResults)}</td>
-                            <td>{ctlResults?.execution_time || "N/A"}</td>
-                        </tr>
-                        <tr>
-                            <td>Subfinder</td>
-                            <td>{subfinderResults?.status || "N/A"}</td>
-                            <td>{getSubdomainCount(subfinderResults)}</td>
-                            <td>{subfinderResults?.execution_time || "N/A"}</td>
-                        </tr>
+                        {tools.map((tool, index) => (
+                            <tr key={index}>
+                                <td>
+                                    <a 
+                                        href={tool.link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-danger text-decoration-none"
+                                    >
+                                        {tool.name}
+                                    </a>
+                                </td>
+                                <td className="text-center">
+                                    {getStatusBadge(tool.results?.status)}
+                                </td>
+                                <td className="text-center">
+                                    {getSubdomainCount(tool.results, tool.tool)}
+                                </td>
+                                <td className="text-center">
+                                    {formatExecutionTime(tool.results?.execution_time)}
+                                </td>
+                            </tr>
+                        ))}
                     </tbody>
                 </Table>
             </Modal.Body>
