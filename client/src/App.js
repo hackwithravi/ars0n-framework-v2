@@ -1208,6 +1208,95 @@ function App() {
                     </Col>
                   ))}
                 </Row>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Discover Live Web Servers - Round 1</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
+                <Row className="mb-4">
+                  <Col>
+                    <Card className="shadow-sm h-100 text-center" style={{ minHeight: '200px' }}>
+                      <Card.Body className="d-flex flex-column">
+                        <Card.Title className="text-danger fs-4 mb-3">Consolidate Subdomains & Discover Live Web Servers</Card.Title>
+                        <Card.Text className="text-white small fst-italic mb-4">
+                          Each tool has discovered a list of subdomains. Review the results, consolidate them into a single list, and discover live web servers.
+                        </Card.Text>
+                        <div className="text-danger mb-4">
+                          <div className="row">
+                            <div className="col">
+                              <h3 className="mb-0">{consolidatedCount}</h3>
+                              <small className="text-white-50">Unique Subdomains</small>
+                            </div>
+                            <div className="col">
+                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <small className="text-white-50">Live Web Servers</small>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="d-flex justify-content-between mt-auto gap-2">
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill" 
+                            onClick={handleConsolidate}
+                            disabled={isConsolidating}
+                          >
+                            <div className="btn-content">
+                              {isConsolidating ? (
+                                <div className="spinner"></div>
+                              ) : 'Consolidate'}
+                            </div>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={handleOpenUniqueSubdomainsModal}
+                            disabled={consolidatedSubdomains.length === 0}
+                          >
+                            Unique Subdomains
+                          </Button>
+                          <Button
+                            variant="outline-danger"
+                            className="flex-fill"
+                            onClick={startHttpxScan}
+                            disabled={isHttpxScanning || mostRecentHttpxScanStatus === "pending" || consolidatedSubdomains.length === 0}
+                          >
+                            <div className="btn-content">
+                              {isHttpxScanning || mostRecentHttpxScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'HTTPX Scan'}
+                            </div>
+                          </Button>
+                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenHttpxResultsModal}>Live Web Servers</Button>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
                 <h4 className="text-secondary mb-3 fs-5">Brute-Force</h4>
                 <Row className="justify-content-between mb-4">
                   {[
@@ -1269,7 +1358,7 @@ function App() {
                     </Col>
                   ))}
                 </Row>
-                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Discover Live Web Servers</h4>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Discover Live Web Servers - Round 2</h4>
                 <Accordion data-bs-theme="dark" className="mb-3">
                   <Accordion.Item eventKey="0">
                     <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
@@ -1303,10 +1392,22 @@ function App() {
                   <Col>
                     <Card className="shadow-sm h-100 text-center" style={{ minHeight: '200px' }}>
                       <Card.Body className="d-flex flex-column">
-                        <Card.Title className="text-danger fs-4 mb-3">Subdomain Discovery Results</Card.Title>
+                        <Card.Title className="text-danger fs-4 mb-3">Consolidate Subdomains & Discover Live Web Servers</Card.Title>
                         <Card.Text className="text-white small fst-italic mb-4">
                           Each tool has discovered a list of subdomains. Review the results, consolidate them into a single list, and discover live web servers.
                         </Card.Text>
+                        <div className="text-danger mb-4">
+                          <div className="row">
+                            <div className="col">
+                              <h3 className="mb-0">{consolidatedCount}</h3>
+                              <small className="text-white-50">Unique Subdomains</small>
+                            </div>
+                            <div className="col">
+                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <small className="text-white-50">Live Web Servers</small>
+                            </div>
+                          </div>
+                        </div>
                         <div className="d-flex justify-content-between mt-auto gap-2">
                           <Button 
                             variant="outline-danger" 
@@ -1401,7 +1502,7 @@ function App() {
                     </Col>
                   ))}
                 </Row>
-                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 2</h4>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 3</h4>
                 <Accordion data-bs-theme="dark" className="mb-3">
                   <Accordion.Item eventKey="0">
                     <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
