@@ -79,5 +79,12 @@ services:
     entrypoint: ["sleep", "infinity"]
     restart: "no"
 
+  cewl:
+    build: ./docker/cewl
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
 volumes:
   postgres_data:

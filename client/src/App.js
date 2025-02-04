@@ -61,6 +61,9 @@ import consolidateSubdomains from './utils/consolidateSubdomains.js';
 import fetchConsolidatedSubdomains from './utils/fetchConsolidatedSubdomains.js';
 import monitorShuffleDNSScanStatus from './utils/monitorShuffleDNSScanStatus.js';
 import initiateShuffleDNSScan from './utils/initiateShuffleDNSScan.js';
+import initiateCeWLScan from './utils/initiateCeWLScan';
+import monitorCeWLScanStatus from './utils/monitorCeWLScanStatus';
+import { CeWLResultsModal } from './modals/cewlModals';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -130,6 +133,13 @@ function App() {
   const [isConsolidating, setIsConsolidating] = useState(false);
   const [consolidatedCount, setConsolidatedCount] = useState(0);
   const [showUniqueSubdomainsModal, setShowUniqueSubdomainsModal] = useState(false);
+  const [mostRecentCeWLScanStatus, setMostRecentCeWLScanStatus] = useState(null);
+  const [mostRecentCeWLScan, setMostRecentCeWLScan] = useState(null);
+  const [isCeWLScanning, setIsCeWLScanning] = useState(false);
+  const [showCeWLResultsModal, setShowCeWLResultsModal] = useState(false);
+  const [cewlScans, setCeWLScans] = useState([]);
+  const [mostRecentShuffleDNSCustomScan, setMostRecentShuffleDNSCustomScan] = useState(null);
+  const [mostRecentShuffleDNSCustomScanStatus, setMostRecentShuffleDNSCustomScanStatus] = useState(null);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -248,6 +258,45 @@ function App() {
         setIsShuffleDNSScanning,
         setMostRecentShuffleDNSScanStatus
       );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorCeWLScanStatus(
+        activeTarget,
+        setCeWLScans,
+        setMostRecentCeWLScan,
+        setIsCeWLScanning,
+        setMostRecentCeWLScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      const fetchCustomShuffleDNSScans = async () => {
+        try {
+          const response = await fetch(
+            `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/shufflednscustom-scans`
+          );
+          if (!response.ok) {
+            throw new Error('Failed to fetch custom ShuffleDNS scans');
+          }
+          const scans = await response.json();
+          if (scans && scans.length > 0) {
+            const mostRecentScan = scans[0]; // Scans are ordered by created_at DESC
+            setMostRecentShuffleDNSCustomScan(mostRecentScan);
+            setMostRecentShuffleDNSCustomScanStatus(mostRecentScan.status);
+          }
+        } catch (error) {
+          console.error('Error fetching custom ShuffleDNS scans:', error);
+        }
+      };
+
+      fetchCustomShuffleDNSScans();
+      const interval = setInterval(fetchCustomShuffleDNSScans, 5000);
+      return () => clearInterval(interval);
     }
   }, [activeTarget]);
 
@@ -655,6 +704,17 @@ function App() {
     );
   };
 
+  const startCeWLScan = () => {
+    initiateCeWLScan(
+      activeTarget,
+      monitorCeWLScanStatus,
+      setIsCeWLScanning,
+      setCeWLScans,
+      setMostRecentCeWLScanStatus,
+      setMostRecentCeWLScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -732,6 +792,9 @@ function App() {
   };
 
   const handleOpenUniqueSubdomainsModal = () => setShowUniqueSubdomainsModal(true);
+
+  const handleOpenCeWLResultsModal = () => setShowCeWLResultsModal(true);
+  const handleCloseCeWLResultsModal = () => setShowCeWLResultsModal(false);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -921,6 +984,12 @@ function App() {
         handleCloseUniqueSubdomainsModal={handleCloseUniqueSubdomainsModal}
         consolidatedSubdomains={consolidatedSubdomains}
         setShowToast={setShowToast}
+      />
+
+      <CeWLResultsModal
+        showCeWLResultsModal={showCeWLResultsModal}
+        handleCloseCeWLResultsModal={handleCloseCeWLResultsModal}
+        cewlResults={mostRecentShuffleDNSCustomScan}
       />
 
       <Fade in={fadeIn}>
@@ -1311,7 +1380,17 @@ function App() {
                       resultCount: mostRecentShuffleDNSScan && mostRecentShuffleDNSScan.result ? 
                         mostRecentShuffleDNSScan.result.split('\n').filter(line => line.trim()).length : 0
                     },
-                    { name: 'CeWL', link: 'https://github.com/digininja/CeWL', isActive: false }
+                    { 
+                      name: 'CeWL', 
+                      link: 'https://github.com/digininja/CeWL',
+                      isActive: true,
+                      status: mostRecentCeWLScanStatus,
+                      isScanning: isCeWLScanning,
+                      onScan: startCeWLScan,
+                      onResults: handleOpenCeWLResultsModal,
+                      resultCount: mostRecentShuffleDNSCustomScan && mostRecentShuffleDNSCustomScan.result ? 
+                        mostRecentShuffleDNSCustomScan.result.split('\n').filter(line => line.trim()).length : 0
+                    }
                   ].map((tool, index) => (
                     <Col md={6} className="mb-4" key={index}>
                       <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
