@@ -7,6 +7,7 @@ import { GauResultsModal } from './modals/gauModals.js';
 import { Sublist3rResultsModal } from './modals/sublist3rModals.js';
 import { AssetfinderResultsModal } from './modals/assetfinderModals.js';
 import { SubfinderResultsModal } from './modals/subfinderModals.js';
+import { ShuffleDNSResultsModal } from './modals/shuffleDNSModals.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
@@ -58,6 +59,8 @@ import { ReconResultsModal } from './modals/ReconResultsModal';
 import { UniqueSubdomainsModal } from './modals/UniqueSubdomainsModal';
 import consolidateSubdomains from './utils/consolidateSubdomains.js';
 import fetchConsolidatedSubdomains from './utils/fetchConsolidatedSubdomains.js';
+import monitorShuffleDNSScanStatus from './utils/monitorShuffleDNSScanStatus.js';
+import initiateShuffleDNSScan from './utils/initiateShuffleDNSScan.js';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -117,6 +120,11 @@ function App() {
   const [mostRecentSubfinderScanStatus, setMostRecentSubfinderScanStatus] = useState(null);
   const [mostRecentSubfinderScan, setMostRecentSubfinderScan] = useState(null);
   const [isSubfinderScanning, setIsSubfinderScanning] = useState(false);
+  const [showShuffleDNSResultsModal, setShowShuffleDNSResultsModal] = useState(false);
+  const [shuffleDNSScans, setShuffleDNSScans] = useState([]);
+  const [mostRecentShuffleDNSScanStatus, setMostRecentShuffleDNSScanStatus] = useState(null);
+  const [mostRecentShuffleDNSScan, setMostRecentShuffleDNSScan] = useState(null);
+  const [isShuffleDNSScanning, setIsShuffleDNSScanning] = useState(false);
   const [showReconResultsModal, setShowReconResultsModal] = useState(false);
   const [consolidatedSubdomains, setConsolidatedSubdomains] = useState([]);
   const [isConsolidating, setIsConsolidating] = useState(false);
@@ -231,6 +239,18 @@ function App() {
     }
   }, [activeTarget]);
 
+  useEffect(() => {
+    if (activeTarget) {
+      monitorShuffleDNSScanStatus(
+        activeTarget,
+        setShuffleDNSScans,
+        setMostRecentShuffleDNSScan,
+        setIsShuffleDNSScanning,
+        setMostRecentShuffleDNSScanStatus
+      );
+    }
+  }, [activeTarget]);
+
   // Add new useEffect for monitoring consolidated subdomains after scans complete
   useEffect(() => {
     if (activeTarget && (
@@ -239,7 +259,8 @@ function App() {
       mostRecentAssetfinderScanStatus === 'success' ||
       mostRecentGauScanStatus === 'success' ||
       mostRecentCTLScanStatus === 'success' ||
-      mostRecentSubfinderScanStatus === 'success'
+      mostRecentSubfinderScanStatus === 'success' ||
+      mostRecentShuffleDNSScanStatus === 'success'
     )) {
       fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
     }
@@ -250,7 +271,8 @@ function App() {
     mostRecentAssetfinderScanStatus,
     mostRecentGauScanStatus,
     mostRecentCTLScanStatus,
-    mostRecentSubfinderScanStatus
+    mostRecentSubfinderScanStatus,
+    mostRecentShuffleDNSScanStatus
   ]);
 
   // Open Modal Handlers
@@ -622,6 +644,17 @@ function App() {
     );
   };
 
+  const startShuffleDNSScan = () => {
+    initiateShuffleDNSScan(
+      activeTarget,
+      monitorShuffleDNSScanStatus,
+      setIsShuffleDNSScanning,
+      setShuffleDNSScans,
+      setMostRecentShuffleDNSScanStatus,
+      setMostRecentShuffleDNSScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -675,6 +708,9 @@ function App() {
 
   const handleCloseSubfinderResultsModal = () => setShowSubfinderResultsModal(false);
   const handleOpenSubfinderResultsModal = () => setShowSubfinderResultsModal(true);
+
+  const handleCloseShuffleDNSResultsModal = () => setShowShuffleDNSResultsModal(false);
+  const handleOpenShuffleDNSResultsModal = () => setShowShuffleDNSResultsModal(true);
 
   const handleCloseReconResultsModal = () => setShowReconResultsModal(false);
   const handleOpenReconResultsModal = () => setShowReconResultsModal(true);
@@ -862,6 +898,12 @@ function App() {
         subfinderResults={mostRecentSubfinderScan}
       />
 
+      <ShuffleDNSResultsModal
+        showShuffleDNSResultsModal={showShuffleDNSResultsModal}
+        handleCloseShuffleDNSResultsModal={handleCloseShuffleDNSResultsModal}
+        shuffleDNSResults={mostRecentShuffleDNSScan}
+      />
+
       <ReconResultsModal
         showReconResultsModal={showReconResultsModal}
         handleCloseReconResultsModal={handleCloseReconResultsModal}
@@ -871,6 +913,7 @@ function App() {
         gauResults={mostRecentGauScan}
         ctlResults={mostRecentCTLScan}
         subfinderResults={mostRecentSubfinderScan}
+        shuffleDNSResults={mostRecentShuffleDNSScan}
       />
 
       <UniqueSubdomainsModal
@@ -1166,39 +1209,20 @@ function App() {
                   ))}
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Brute-Force</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
                 <Row className="justify-content-between mb-4">
                   {[
-                    { name: 'ShuffleDNS', link: 'https://github.com/projectdiscovery/shuffledns' },
-                    { name: 'CeWL', link: 'https://github.com/digininja/CeWL' }
+                    { 
+                      name: 'ShuffleDNS', 
+                      link: 'https://github.com/projectdiscovery/shuffledns',
+                      isActive: true,
+                      status: mostRecentShuffleDNSScanStatus,
+                      isScanning: isShuffleDNSScanning,
+                      onScan: startShuffleDNSScan,
+                      onResults: handleOpenShuffleDNSResultsModal,
+                      resultCount: mostRecentShuffleDNSScan && mostRecentShuffleDNSScan.result ? 
+                        mostRecentShuffleDNSScan.result.split('\n').filter(line => line.trim()).length : 0
+                    },
+                    { name: 'CeWL', link: 'https://github.com/digininja/CeWL', isActive: false }
                   ].map((tool, index) => (
                     <Col md={6} className="mb-4" key={index}>
                       <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
@@ -1209,11 +1233,36 @@ function App() {
                             </a>
                           </Card.Title>
                           <Card.Text className="text-white small fst-italic">
-                            A subdomain resolver tool that utilizes massdns for resolving subdomains.
+                            {tool.name === 'ShuffleDNS' ? 
+                              'A subdomain resolver tool that utilizes massdns for resolving subdomains.' :
+                              'A custom word list generator for target-specific wordlists.'}
                           </Card.Text>
+                          {tool.isActive && (
+                            <Card.Text className="text-white small mb-3">
+                              Subdomains: {tool.resultCount || "0"}
+                            </Card.Text>
+                          )}
                           <div className="d-flex justify-content-between mt-auto gap-2">
-                            <Button variant="outline-danger" className="flex-fill">Results</Button>
-                            <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={tool.onResults}
+                              disabled={!tool.isActive || !tool.resultCount}
+                            >
+                              Results
+                            </Button>
+                            <Button
+                              variant="outline-danger"
+                              className="flex-fill"
+                              onClick={tool.onScan}
+                              disabled={!tool.isActive || tool.isScanning || tool.status === "pending"}
+                            >
+                              <div className="btn-content">
+                                {tool.isScanning || tool.status === "pending" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Scan'}
+                              </div>
+                            </Button>
                           </div>
                         </Card.Body>
                       </Card>

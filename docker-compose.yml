@@ -70,5 +70,14 @@ services:
     entrypoint: ["sleep", "infinity"]
     restart: "no"
 
+  shuffledns:
+    build: ./docker/shuffledns
+    volumes:
+      - ./docker/shuffledns/wordlists:/app/wordlists
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
 volumes:
   postgres_data:

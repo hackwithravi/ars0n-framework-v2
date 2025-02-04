@@ -209,6 +209,21 @@ type SubfinderScanStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
+type ShuffleDNSScanStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
 var dbPool *pgxpool.Pool
 
 func main() {
@@ -273,6 +288,9 @@ func main() {
 	r.HandleFunc("/scopetarget/{id}/scans/subfinder", getSubfinderScansForScopeTarget).Methods("GET")
 	r.HandleFunc("/consolidate-subdomains/{id}", handleConsolidateSubdomains).Methods("GET")
 	r.HandleFunc("/consolidated-subdomains/{id}", getConsolidatedSubdomains).Methods("GET")
+	r.HandleFunc("/shuffledns/run", runShuffleDNSScan).Methods("POST")
+	r.HandleFunc("/shuffledns/{scan_id}", getShuffleDNSScanStatus).Methods("GET")
+	r.HandleFunc("/scopetarget/{id}/scans/shuffledns", getShuffleDNSScansForScopeTarget).Methods("GET")
 
 	handlerWithCORS := corsMiddleware(r)
 
@@ -460,6 +478,20 @@ func createTables() {
 			subdomain TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW(),
 			UNIQUE(scope_target_id, subdomain)
+		);`,
+		`CREATE TABLE IF NOT EXISTS shuffledns_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
 	}
 
@@ -3301,4 +3333,226 @@ func getConsolidatedSubdomains(w http.ResponseWriter, r *http.Request) {
 		"count":      len(subdomains),
 		"subdomains": subdomains,
 	})
+}
+
+func runShuffleDNSScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO shuffledns_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseShuffleDNSScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseShuffleDNSScan(scanID, domain string) {
+	log.Printf("[INFO] Starting ShuffleDNS scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	// Create temporary directory for wordlist and resolvers
+	tempDir := "/tmp/shuffledns-temp"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Printf("[ERROR] Failed to create temp directory: %v", err)
+		updateShuffleDNSScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp directory: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write domain to a temporary file
+	domainFile := filepath.Join(tempDir, "domain.txt")
+	if err := os.WriteFile(domainFile, []byte(domain), 0644); err != nil {
+		log.Printf("[ERROR] Failed to write domain file: %v", err)
+		updateShuffleDNSScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write domain file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-shuffledns-1",
+		"shuffledns",
+		"-d", domain,
+		"-w", "/app/wordlists/all.txt",
+		"-r", "/app/wordlists/resolvers.txt",
+		"-silent",
+		"-massdns", "/usr/local/bin/massdns",
+		"-mode", "bruteforce",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] ShuffleDNS scan failed for %s: %v", domain, err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		updateShuffleDNSScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	result := stdout.String()
+	log.Printf("[INFO] ShuffleDNS scan completed in %s for domain %s", execTime, domain)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result == "" {
+		log.Printf("[WARN] No output from ShuffleDNS scan")
+		updateShuffleDNSScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
+	} else {
+		log.Printf("[DEBUG] ShuffleDNS output: %s", result)
+		updateShuffleDNSScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func updateShuffleDNSScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating ShuffleDNS scan status for %s to %s", scanID, status)
+	query := `UPDATE shuffledns_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update ShuffleDNS scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated ShuffleDNS scan status for %s", scanID)
+	}
+}
+
+func getShuffleDNSScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan ShuffleDNSScanStatus
+	query := `SELECT * FROM shuffledns_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getShuffleDNSScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	if scopeTargetID == "" {
+		log.Printf("[ERROR] No scope target ID provided")
+		http.Error(w, "No scope target ID provided", http.StatusBadRequest)
+		return
+	}
+
+	query := `SELECT * FROM shuffledns_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan ShuffleDNSScanStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scan.ScopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scan.ScopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scans)
 }
