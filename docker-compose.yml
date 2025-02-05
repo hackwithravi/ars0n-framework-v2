@@ -86,5 +86,27 @@ services:
     entrypoint: ["sleep", "infinity"]
     restart: "no"
 
+  gospider:
+    build:
+      context: .
+      dockerfile: docker/gospider/Dockerfile
+    volumes:
+      - ./gospider-mounts:/tmp/gospider-mounts
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  subdomainizer:
+    build:
+      context: .
+      dockerfile: docker/subdomainizer/Dockerfile
+    volumes:
+      - ./subdomainizer-mounts:/tmp/subdomainizer-mounts
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
 volumes:
   postgres_data:

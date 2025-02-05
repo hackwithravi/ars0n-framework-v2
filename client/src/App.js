@@ -64,6 +64,12 @@ import initiateShuffleDNSScan from './utils/initiateShuffleDNSScan.js';
 import initiateCeWLScan from './utils/initiateCeWLScan';
 import monitorCeWLScanStatus from './utils/monitorCeWLScanStatus';
 import { CeWLResultsModal } from './modals/cewlModals';
+import { GoSpiderResultsModal } from './modals/gospiderModals';
+import initiateGoSpiderScan from './utils/initiateGoSpiderScan';
+import monitorGoSpiderScanStatus from './utils/monitorGoSpiderScanStatus';
+import { SubdomainizerResultsModal } from './modals/subdomainizerModals';
+import initiateSubdomainizerScan from './utils/initiateSubdomainizerScan';
+import monitorSubdomainizerScanStatus from './utils/monitorSubdomainizerScanStatus';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -140,6 +146,16 @@ function App() {
   const [cewlScans, setCeWLScans] = useState([]);
   const [mostRecentShuffleDNSCustomScan, setMostRecentShuffleDNSCustomScan] = useState(null);
   const [mostRecentShuffleDNSCustomScanStatus, setMostRecentShuffleDNSCustomScanStatus] = useState(null);
+  const [showGoSpiderResultsModal, setShowGoSpiderResultsModal] = useState(false);
+  const [gospiderScans, setGoSpiderScans] = useState([]);
+  const [mostRecentGoSpiderScanStatus, setMostRecentGoSpiderScanStatus] = useState(null);
+  const [mostRecentGoSpiderScan, setMostRecentGoSpiderScan] = useState(null);
+  const [isGoSpiderScanning, setIsGoSpiderScanning] = useState(false);
+  const [showSubdomainizerResultsModal, setShowSubdomainizerResultsModal] = useState(false);
+  const [subdomainizerScans, setSubdomainizerScans] = useState([]);
+  const [mostRecentSubdomainizerScanStatus, setMostRecentSubdomainizerScanStatus] = useState(null);
+  const [mostRecentSubdomainizerScan, setMostRecentSubdomainizerScan] = useState(null);
+  const [isSubdomainizerScanning, setIsSubdomainizerScanning] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -309,7 +325,8 @@ function App() {
       mostRecentGauScanStatus === 'success' ||
       mostRecentCTLScanStatus === 'success' ||
       mostRecentSubfinderScanStatus === 'success' ||
-      mostRecentShuffleDNSScanStatus === 'success'
+      mostRecentShuffleDNSScanStatus === 'success' ||
+      mostRecentShuffleDNSCustomScanStatus === 'success'
     )) {
       fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
     }
@@ -321,7 +338,8 @@ function App() {
     mostRecentGauScanStatus,
     mostRecentCTLScanStatus,
     mostRecentSubfinderScanStatus,
-    mostRecentShuffleDNSScanStatus
+    mostRecentShuffleDNSScanStatus,
+    mostRecentShuffleDNSCustomScanStatus
   ]);
 
   // Open Modal Handlers
@@ -715,6 +733,28 @@ function App() {
     );
   };
 
+  const startGoSpiderScan = () => {
+    initiateGoSpiderScan(
+      activeTarget,
+      monitorGoSpiderScanStatus,
+      setIsGoSpiderScanning,
+      setGoSpiderScans,
+      setMostRecentGoSpiderScanStatus,
+      setMostRecentGoSpiderScan
+    );
+  };
+
+  const startSubdomainizerScan = () => {
+    initiateSubdomainizerScan(
+      activeTarget,
+      monitorSubdomainizerScanStatus,
+      setIsSubdomainizerScanning,
+      setSubdomainizerScans,
+      setMostRecentSubdomainizerScanStatus,
+      setMostRecentSubdomainizerScan
+    );
+  };
+
   const renderScanId = (scanId) => {
     if (scanId === 'No scans available' || scanId === 'No scan ID available') {
       return <span>{scanId}</span>;
@@ -795,6 +835,37 @@ function App() {
 
   const handleOpenCeWLResultsModal = () => setShowCeWLResultsModal(true);
   const handleCloseCeWLResultsModal = () => setShowCeWLResultsModal(false);
+
+  const handleCloseGoSpiderResultsModal = () => setShowGoSpiderResultsModal(false);
+  const handleOpenGoSpiderResultsModal = () => setShowGoSpiderResultsModal(true);
+
+  const handleCloseSubdomainizerResultsModal = () => setShowSubdomainizerResultsModal(false);
+  const handleOpenSubdomainizerResultsModal = () => setShowSubdomainizerResultsModal(true);
+
+  // Add this useEffect with the other useEffects
+  useEffect(() => {
+    if (activeTarget) {
+      monitorGoSpiderScanStatus(
+        activeTarget,
+        setGoSpiderScans,
+        setMostRecentGoSpiderScan,
+        setIsGoSpiderScanning,
+        setMostRecentGoSpiderScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorSubdomainizerScanStatus(
+        activeTarget,
+        setSubdomainizerScans,
+        setMostRecentSubdomainizerScan,
+        setIsSubdomainizerScanning,
+        setMostRecentSubdomainizerScanStatus
+      );
+    }
+  }, [activeTarget]);
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -990,6 +1061,18 @@ function App() {
         showCeWLResultsModal={showCeWLResultsModal}
         handleCloseCeWLResultsModal={handleCloseCeWLResultsModal}
         cewlResults={mostRecentShuffleDNSCustomScan}
+      />
+
+      <GoSpiderResultsModal
+        showGoSpiderResultsModal={showGoSpiderResultsModal}
+        handleCloseGoSpiderResultsModal={handleCloseGoSpiderResultsModal}
+        gospiderResults={mostRecentGoSpiderScan}
+      />
+
+      <SubdomainizerResultsModal
+        showSubdomainizerResultsModal={showSubdomainizerResultsModal}
+        handleCloseSubdomainizerResultsModal={handleCloseSubdomainizerResultsModal}
+        subdomainizerResults={mostRecentSubdomainizerScan}
       />
 
       <Fade in={fadeIn}>
@@ -1558,8 +1641,28 @@ function App() {
                 </Accordion>
                 <Row className="justify-content-between mb-4">
                   {[
-                    { name: 'GoSpider', link: 'https://github.com/jaeles-project/gospider' },
-                    { name: 'Subdomainizer', link: 'https://github.com/nsonaniya2010/SubDomainizer' }
+                    { 
+                      name: 'GoSpider', 
+                      link: 'https://github.com/jaeles-project/gospider',
+                      isActive: true,
+                      status: mostRecentGoSpiderScanStatus,
+                      isScanning: isGoSpiderScanning,
+                      onScan: startGoSpiderScan,
+                      onResults: handleOpenGoSpiderResultsModal,
+                      resultCount: mostRecentGoSpiderScan && mostRecentGoSpiderScan.result ? 
+                        mostRecentGoSpiderScan.result.split('\n').filter(line => line.trim()).length : 0
+                    },
+                    { 
+                      name: 'Subdomainizer', 
+                      link: 'https://github.com/nsonaniya2010/SubDomainizer',
+                      isActive: true,
+                      status: mostRecentSubdomainizerScanStatus,
+                      isScanning: isSubdomainizerScanning,
+                      onScan: startSubdomainizerScan,
+                      onResults: handleOpenSubdomainizerResultsModal,
+                      resultCount: mostRecentSubdomainizerScan && mostRecentSubdomainizerScan.result ? 
+                        mostRecentSubdomainizerScan.result.split('\n').filter(line => line.trim()).length : 0
+                    }
                   ].map((tool, index) => (
                     <Col md={6} className="mb-4" key={index}>
                       <Card className="shadow-sm h-100 text-center" style={{ minHeight: '150px' }}>
@@ -1572,16 +1675,39 @@ function App() {
                           <Card.Text className="text-white small fst-italic">
                             A fast web spider written in Go for web scraping and crawling.
                           </Card.Text>
+                          {tool.isActive && (
+                            <Card.Text className="text-white small mb-3">
+                              Subdomains: {tool.resultCount || "0"}
+                            </Card.Text>
+                          )}
                           <div className="d-flex justify-content-between mt-auto gap-2">
-                            <Button variant="outline-danger" className="flex-fill">Results</Button>
-                            <Button variant="outline-danger" className="flex-fill">Scan</Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={tool.onResults}
+                              disabled={!tool.isActive || !tool.resultCount}
+                            >
+                              Results
+                            </Button>
+                            <Button
+                              variant="outline-danger"
+                              className="flex-fill"
+                              onClick={tool.onScan}
+                              disabled={!tool.isActive || tool.isScanning || tool.status === "pending"}
+                            >
+                              <div className="btn-content">
+                                {tool.isScanning || tool.status === "pending" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Scan'}
+                              </div>
+                            </Button>
                           </div>
                         </Card.Body>
                       </Card>
                     </Col>
                   ))}
                 </Row>
-                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Live Web Servers - Round 3</h4>
+                <h4 className="text-secondary mb-3 fs-5">Consolidate Subdomains & Discover Live Web Servers - Round 3</h4>
                 <Accordion data-bs-theme="dark" className="mb-3">
                   <Accordion.Item eventKey="0">
                     <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
