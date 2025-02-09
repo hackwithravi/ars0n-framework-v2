@@ -8,22 +8,23 @@ import { Sublist3rResultsModal } from './modals/sublist3rModals.js';
 import { AssetfinderResultsModal } from './modals/assetfinderModals.js';
 import { SubfinderResultsModal } from './modals/subfinderModals.js';
 import { ShuffleDNSResultsModal } from './modals/shuffleDNSModals.js';
+import ScreenshotResultsModal from './modals/ScreenshotResultsModal.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-  Container,
-  Fade,
-  Card,
-  Row,
-  Col,
-  Button,
-  ListGroup,
-  Accordion,
-  Modal,
-  Table,
-  Toast,
-  ToastContainer,
+    Container,
+    Fade,
+    Card,
+    Row,
+    Col,
+    Button,
+    ListGroup,
+    Accordion,
+    Modal,
+    Table,
+    Toast,
+    ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -31,15 +32,15 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-  getTypeIcon,
-  getModeIcon,
-  getLastScanDate,
-  getLatestScanStatus,
-  getLatestScanTime,
-  getLatestScanId,
-  getExecutionTime,
-  getResultLength,
-  copyToClipboard,
+    getTypeIcon,
+    getModeIcon,
+    getLastScanDate,
+    getLatestScanStatus,
+    getLatestScanTime,
+    getLatestScanId,
+    getExecutionTime,
+    getResultLength,
+    copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
@@ -70,6 +71,8 @@ import monitorGoSpiderScanStatus from './utils/monitorGoSpiderScanStatus';
 import { SubdomainizerResultsModal } from './modals/subdomainizerModals';
 import initiateSubdomainizerScan from './utils/initiateSubdomainizerScan';
 import monitorSubdomainizerScanStatus from './utils/monitorSubdomainizerScanStatus';
+import initiateNucleiScreenshotScan from './utils/initiateNucleiScreenshotScan';
+import monitorNucleiScreenshotScanStatus from './utils/monitorNucleiScreenshotScanStatus';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -156,6 +159,11 @@ function App() {
   const [mostRecentSubdomainizerScanStatus, setMostRecentSubdomainizerScanStatus] = useState(null);
   const [mostRecentSubdomainizerScan, setMostRecentSubdomainizerScan] = useState(null);
   const [isSubdomainizerScanning, setIsSubdomainizerScanning] = useState(false);
+  const [showScreenshotResultsModal, setShowScreenshotResultsModal] = useState(false);
+  const [nucleiScreenshotScans, setNucleiScreenshotScans] = useState([]);
+  const [mostRecentNucleiScreenshotScanStatus, setMostRecentNucleiScreenshotScanStatus] = useState(null);
+  const [mostRecentNucleiScreenshotScan, setMostRecentNucleiScreenshotScan] = useState(null);
+  const [isNucleiScreenshotScanning, setIsNucleiScreenshotScanning] = useState(false);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -867,6 +875,32 @@ function App() {
     }
   }, [activeTarget]);
 
+  const handleCloseScreenshotResultsModal = () => setShowScreenshotResultsModal(false);
+  const handleOpenScreenshotResultsModal = () => setShowScreenshotResultsModal(true);
+
+  const startNucleiScreenshotScan = () => {
+    initiateNucleiScreenshotScan(
+      activeTarget,
+      monitorNucleiScreenshotScanStatus,
+      setIsNucleiScreenshotScanning,
+      setNucleiScreenshotScans,
+      setMostRecentNucleiScreenshotScanStatus,
+      setMostRecentNucleiScreenshotScan
+    );
+  };
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorNucleiScreenshotScanStatus(
+        activeTarget,
+        setNucleiScreenshotScans,
+        setMostRecentNucleiScreenshotScan,
+        setIsNucleiScreenshotScanning,
+        setMostRecentNucleiScreenshotScanStatus
+      );
+    }
+  }, [activeTarget]);
+
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
       <Ars0nFrameworkHeader />
@@ -1073,6 +1107,12 @@ function App() {
         showSubdomainizerResultsModal={showSubdomainizerResultsModal}
         handleCloseSubdomainizerResultsModal={handleCloseSubdomainizerResultsModal}
         subdomainizerResults={mostRecentSubdomainizerScan}
+      />
+
+      <ScreenshotResultsModal
+        showScreenshotResultsModal={showScreenshotResultsModal}
+        handleCloseScreenshotResultsModal={handleCloseScreenshotResultsModal}
+        activeTarget={activeTarget}
       />
 
       <Fade in={fadeIn}>
@@ -1838,7 +1878,26 @@ function App() {
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">
-                          <Button variant="outline-danger" className="flex-fill">Take Screenshots</Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={startNucleiScreenshotScan}
+                            disabled={isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending"}
+                          >
+                            <div className="btn-content">
+                              {isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'Take Screenshots'}
+                            </div>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={handleOpenScreenshotResultsModal}
+                            disabled={!mostRecentNucleiScreenshotScan || mostRecentNucleiScreenshotScan.status !== "success"}
+                          >
+                            View Screenshots
+                          </Button>
                           <Button variant="outline-danger" className="flex-fill">Gather Metadata</Button>
                           <Button variant="outline-danger" className="flex-fill">Generate Report</Button>
                           <Button variant="outline-danger" className="flex-fill">Select Target URL</Button>

@@ -17,6 +17,7 @@ services:
       DB_NAME: ars0n
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - temp_data:/tmp
     restart: unless-stopped
 
   db:
@@ -108,5 +109,16 @@ services:
     entrypoint: ["sleep", "infinity"]
     restart: "no"
 
+  nuclei:
+    build: ./docker/nuclei
+    depends_on:
+      - api
+    volumes:
+      - temp_data:/tmp
+    entrypoint: ["sleep", "infinity"]
+    shm_size: '2g'
+    restart: "no"
+
 volumes:
   postgres_data:
+  temp_data:
