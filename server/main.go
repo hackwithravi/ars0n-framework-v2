@@ -5104,6 +5104,7 @@ func runNucleiScreenshotScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func executeAndParseNucleiScreenshotScan(scanID, domain string) {
+	_ = domain
 	log.Printf("[INFO] Starting Nuclei screenshot scan execution for scan ID: %s", scanID)
 	startTime := time.Now()
 
