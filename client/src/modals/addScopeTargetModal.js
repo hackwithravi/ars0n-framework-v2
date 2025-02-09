@@ -35,6 +35,9 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
     }
   };
 
+  const isDisabledType = (type) => ['Company', 'URL'].includes(type);
+  const isDisabledMode = (mode) => ['Automated', 'Hybrid'].includes(mode);
+
   return (
     <Modal
       show={show}
@@ -70,8 +73,12 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
             <Col key={type}>
               <Card
                 className={`mb-3 h-200 text-center ${selections.type === type ? 'border-danger' : ''}`}
-                onClick={() => handleSelect('type', type)}
-                style={{ cursor: 'pointer' }}
+                onClick={() => !isDisabledType(type) && handleSelect('type', type)}
+                style={{ 
+                  cursor: isDisabledType(type) ? 'not-allowed' : 'pointer',
+                  opacity: isDisabledType(type) ? 0.5 : 1,
+                  pointerEvents: isDisabledType(type) ? 'none' : 'auto'
+                }}
               >
                 <Card.Body>
                   <img
@@ -92,8 +99,12 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
             <Col key={mode}>
               <Card
                 className={`mb-3 h-200 text-center ${selections.mode === mode ? 'border-danger' : ''}`}
-                onClick={() => handleSelect('mode', mode)}
-                style={{ cursor: 'pointer' }}
+                onClick={() => !isDisabledMode(mode) && handleSelect('mode', mode)}
+                style={{ 
+                  cursor: isDisabledMode(mode) ? 'not-allowed' : 'pointer',
+                  opacity: isDisabledMode(mode) ? 0.5 : 1,
+                  pointerEvents: isDisabledMode(mode) ? 'none' : 'auto'
+                }}
               >
                 <Card.Body>
                   <img
