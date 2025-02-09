@@ -286,20 +286,42 @@ type NucleiScreenshotStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
+type NucleiSSLStatus struct {
+	ID            string         `json:"id"`
+	ScanID        string         `json:"scan_id"`
+	Domain        string         `json:"domain"`
+	Status        string         `json:"status"`
+	Result        sql.NullString `json:"result,omitempty"`
+	Error         sql.NullString `json:"error,omitempty"`
+	StdOut        sql.NullString `json:"stdout,omitempty"`
+	StdErr        sql.NullString `json:"stderr,omitempty"`
+	Command       sql.NullString `json:"command,omitempty"`
+	ExecTime      sql.NullString `json:"execution_time,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ScopeTargetID string         `json:"scope_target_id"`
+}
+
 type TargetURL struct {
-	ID              string         `json:"id"`
-	URL             string         `json:"url"`
-	Screenshot      sql.NullString `json:"screenshot,omitempty"`
-	StatusCode      int            `json:"status_code"`
-	Title           sql.NullString `json:"title,omitempty"`
-	WebServer       sql.NullString `json:"web_server,omitempty"`
-	Technologies    []string       `json:"technologies"`
-	ContentLength   int            `json:"content_length"`
-	NewlyDiscovered bool           `json:"newly_discovered"`
-	NoLongerLive    bool           `json:"no_longer_live"`
-	ScopeTargetID   string         `json:"scope_target_id"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID                  string         `json:"id"`
+	URL                 string         `json:"url"`
+	Screenshot          sql.NullString `json:"screenshot,omitempty"`
+	StatusCode          int            `json:"status_code"`
+	Title               sql.NullString `json:"title,omitempty"`
+	WebServer           sql.NullString `json:"web_server,omitempty"`
+	Technologies        []string       `json:"technologies"`
+	ContentLength       int            `json:"content_length"`
+	NewlyDiscovered     bool           `json:"newly_discovered"`
+	NoLongerLive        bool           `json:"no_longer_live"`
+	ScopeTargetID       string         `json:"scope_target_id"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	HasDeprecatedTLS    bool           `json:"has_deprecated_tls"`
+	HasExpiredSSL       bool           `json:"has_expired_ssl"`
+	HasMismatchedSSL    bool           `json:"has_mismatched_ssl"`
+	HasRevokedSSL       bool           `json:"has_revoked_ssl"`
+	HasSelfSignedSSL    bool           `json:"has_self_signed_ssl"`
+	HasUntrustedRootSSL bool           `json:"has_untrusted_root_ssl"`
+	HasWildcardTLS      bool           `json:"has_wildcard_tls"`
 }
 
 var dbPool *pgxpool.Pool
@@ -331,77 +353,83 @@ func main() {
 	createTables()
 
 	r := mux.NewRouter()
-	r.HandleFunc("/scopetarget/add", createScopeTarget).Methods("POST")
-	r.HandleFunc("/scopetarget/read", readScopeTarget).Methods("GET")
-	r.HandleFunc("/scopetarget/delete/{id}", deleteScopeTarget).Methods("DELETE")
-	r.HandleFunc("/scopetarget/{id}/activate", activateScopeTarget).Methods("POST")
-	r.HandleFunc("/scopetarget/{id}/scans/amass", getAmassScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/amass/run", runAmassScan).Methods("POST")
-	r.HandleFunc("/amass/{scanID}", getAmassScanStatus).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/dns", getDNSRecords).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/ip", getIPs).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/subdomain", getSubdomains).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/cloud", getCloudDomains).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/sp", getServiceProviders).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/asn", getASNs).Methods("GET")
-	r.HandleFunc("/amass/{scan_id}/subnet", getSubnets).Methods("GET")
-	r.HandleFunc("/httpx/run", runHttpxScan).Methods("POST")
-	r.HandleFunc("/httpx/{scanID}", getHttpxScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/httpx", getHttpxScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans", getAllScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/gau/run", runGauScan).Methods("POST")
-	r.HandleFunc("/gau/{scanID}", getGauScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/gau", getGauScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/sublist3r/run", runSublist3rScan).Methods("POST")
-	r.HandleFunc("/sublist3r/{scan_id}", getSublist3rScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/sublist3r", getSublist3rScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/assetfinder/run", runAssetfinderScan).Methods("POST")
-	r.HandleFunc("/assetfinder/{scan_id}", getAssetfinderScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/assetfinder", getAssetfinderScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/ctl/run", runCTLScan).Methods("POST")
-	r.HandleFunc("/ctl/{scan_id}", getCTLScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/ctl", getCTLScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/subfinder/run", runSubfinderScan).Methods("POST")
-	r.HandleFunc("/subfinder/{scan_id}", getSubfinderScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/subfinder", getSubfinderScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/consolidate-subdomains/{id}", handleConsolidateSubdomains).Methods("GET")
-	r.HandleFunc("/consolidated-subdomains/{id}", getConsolidatedSubdomains).Methods("GET")
-	r.HandleFunc("/shuffledns/run", runShuffleDNSScan).Methods("POST")
-	r.HandleFunc("/shuffledns/{scan_id}", getShuffleDNSScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/shuffledns", getShuffleDNSScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/cewl/run", runCeWLScan).Methods("POST")
-	r.HandleFunc("/cewl/{scan_id}", getCeWLScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/cewl", getCeWLScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/cewl-urls/run", runCeWLScansForUrls).Methods("POST")
-	r.HandleFunc("/cewl-wordlist/run", runShuffleDNSWithWordlist).Methods("POST")
-	r.HandleFunc("/cewl-wordlist/{scan_id}", getShuffleDNSScanStatus).Methods("GET")
-	r.HandleFunc("/api/scope-targets/{id}/shufflednscustom-scans", getShuffleDNSCustomScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/gospider/run", runGoSpiderScan).Methods("POST")
-	r.HandleFunc("/gospider/{scan_id}", getGoSpiderScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/gospider", getGoSpiderScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/subdomainizer/run", runSubdomainizerScan).Methods("POST")
-	r.HandleFunc("/subdomainizer/{scan_id}", getSubdomainizerScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/subdomainizer", getSubdomainizerScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/nuclei-screenshot/run", runNucleiScreenshotScan).Methods("POST")
-	r.HandleFunc("/nuclei-screenshot/{scan_id}", getNucleiScreenshotScanStatus).Methods("GET")
-	r.HandleFunc("/scopetarget/{id}/scans/nuclei-screenshot", getNucleiScreenshotScansForScopeTarget).Methods("GET")
-	r.HandleFunc("/nuclei-screenshot/run", runNucleiScreenshotScan).Methods("POST")
-	r.HandleFunc("/nuclei-screenshot/{scan_id}", getNucleiScreenshotScanStatus).Methods("GET")
-	r.HandleFunc("/api/scope-targets/{id}/target-urls", getTargetURLsForScopeTarget).Methods("GET")
 
-	handlerWithCORS := corsMiddleware(r)
+	// Apply CORS middleware first
+	r.Use(corsMiddleware)
+
+	// Define routes
+	r.HandleFunc("/scopetarget/add", createScopeTarget).Methods("POST", "OPTIONS")
+	r.HandleFunc("/scopetarget/read", readScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/delete/{id}", deleteScopeTarget).Methods("DELETE", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/activate", activateScopeTarget).Methods("POST", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/amass", getAmassScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/run", runAmassScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/amass/{scanID}", getAmassScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/dns", getDNSRecords).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/ip", getIPs).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/subdomain", getSubdomains).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/cloud", getCloudDomains).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/sp", getServiceProviders).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/asn", getASNs).Methods("GET", "OPTIONS")
+	r.HandleFunc("/amass/{scan_id}/subnet", getSubnets).Methods("GET", "OPTIONS")
+	r.HandleFunc("/httpx/run", runHttpxScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/httpx/{scanID}", getHttpxScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/httpx", getHttpxScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans", getAllScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/gau/run", runGauScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/gau/{scanID}", getGauScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/gau", getGauScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/sublist3r/run", runSublist3rScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/sublist3r/{scan_id}", getSublist3rScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/sublist3r", getSublist3rScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/assetfinder/run", runAssetfinderScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/assetfinder/{scan_id}", getAssetfinderScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/assetfinder", getAssetfinderScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/ctl/run", runCTLScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/ctl/{scan_id}", getCTLScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/ctl", getCTLScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/subfinder/run", runSubfinderScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/subfinder/{scan_id}", getSubfinderScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/subfinder", getSubfinderScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/consolidate-subdomains/{id}", handleConsolidateSubdomains).Methods("GET", "OPTIONS")
+	r.HandleFunc("/consolidated-subdomains/{id}", getConsolidatedSubdomains).Methods("GET", "OPTIONS")
+	r.HandleFunc("/shuffledns/run", runShuffleDNSScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/shuffledns/{scan_id}", getShuffleDNSScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/shuffledns", getShuffleDNSScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/cewl/run", runCeWLScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/cewl/{scan_id}", getCeWLScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/cewl", getCeWLScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/cewl-urls/run", runCeWLScansForUrls).Methods("POST", "OPTIONS")
+	r.HandleFunc("/cewl-wordlist/run", runShuffleDNSWithWordlist).Methods("POST", "OPTIONS")
+	r.HandleFunc("/cewl-wordlist/{scan_id}", getShuffleDNSScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/scope-targets/{id}/shufflednscustom-scans", getShuffleDNSCustomScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/gospider/run", runGoSpiderScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/gospider/{scan_id}", getGoSpiderScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/gospider", getGoSpiderScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/subdomainizer/run", runSubdomainizerScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/subdomainizer/{scan_id}", getSubdomainizerScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/subdomainizer", getSubdomainizerScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/nuclei-screenshot/run", runNucleiScreenshotScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/nuclei-screenshot/{scan_id}", getNucleiScreenshotScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/nuclei-screenshot", getNucleiScreenshotScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/nuclei-screenshot/run", runNucleiScreenshotScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/nuclei-screenshot/{scan_id}", getNucleiScreenshotScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/scope-targets/{id}/target-urls", getTargetURLsForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/nuclei-ssl/run", runNucleiSSLScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/nuclei-ssl/{scan_id}", getNucleiSSLScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/nuclei-ssl", getNucleiSSLScansForScopeTarget).Methods("GET", "OPTIONS")
 
 	log.Println("API server started on :8080")
-	http.ListenAndServe(":8080", handlerWithCORS)
+	http.ListenAndServe(":8080", r)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
-		if r.Method == http.MethodOptions {
+		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -660,6 +688,20 @@ func createTables() {
 			created_at TIMESTAMP DEFAULT NOW(),
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
+		`CREATE TABLE IF NOT EXISTS nuclei_ssl_scans (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			scan_id UUID NOT NULL UNIQUE,
+			domain TEXT NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			result TEXT,
+			error TEXT,
+			stdout TEXT,
+			stderr TEXT,
+			command TEXT,
+			execution_time TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
 		`CREATE TABLE IF NOT EXISTS target_urls (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			url TEXT NOT NULL UNIQUE,
@@ -673,7 +715,14 @@ func createTables() {
 			no_longer_live BOOLEAN DEFAULT false,
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
 			created_at TIMESTAMP DEFAULT NOW(),
-			updated_at TIMESTAMP DEFAULT NOW()
+			updated_at TIMESTAMP DEFAULT NOW(),
+			has_deprecated_tls BOOLEAN DEFAULT false,
+			has_expired_ssl BOOLEAN DEFAULT false,
+			has_mismatched_ssl BOOLEAN DEFAULT false,
+			has_revoked_ssl BOOLEAN DEFAULT false,
+			has_self_signed_ssl BOOLEAN DEFAULT false,
+			has_untrusted_root_ssl BOOLEAN DEFAULT false,
+			has_wildcard_tls BOOLEAN DEFAULT false
 		);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
@@ -5563,7 +5612,10 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT id, url, screenshot, status_code, title, web_server, 
 			   technologies, content_length, newly_discovered, no_longer_live,
-			   scope_target_id, created_at, updated_at
+			   scope_target_id, created_at, updated_at,
+			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
+			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
+			   has_wildcard_tls
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
@@ -5577,19 +5629,26 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type TargetURLResponse struct {
-		ID              string    `json:"id"`
-		URL             string    `json:"url"`
-		Screenshot      string    `json:"screenshot,omitempty"`
-		StatusCode      int       `json:"status_code"`
-		Title           string    `json:"title,omitempty"`
-		WebServer       string    `json:"web_server,omitempty"`
-		Technologies    []string  `json:"technologies"`
-		ContentLength   int       `json:"content_length"`
-		NewlyDiscovered bool      `json:"newly_discovered"`
-		NoLongerLive    bool      `json:"no_longer_live"`
-		ScopeTargetID   string    `json:"scope_target_id"`
-		CreatedAt       time.Time `json:"created_at"`
-		UpdatedAt       time.Time `json:"updated_at"`
+		ID                  string    `json:"id"`
+		URL                 string    `json:"url"`
+		Screenshot          string    `json:"screenshot,omitempty"`
+		StatusCode          int       `json:"status_code"`
+		Title               string    `json:"title,omitempty"`
+		WebServer           string    `json:"web_server,omitempty"`
+		Technologies        []string  `json:"technologies"`
+		ContentLength       int       `json:"content_length"`
+		NewlyDiscovered     bool      `json:"newly_discovered"`
+		NoLongerLive        bool      `json:"no_longer_live"`
+		ScopeTargetID       string    `json:"scope_target_id"`
+		CreatedAt           time.Time `json:"created_at"`
+		UpdatedAt           time.Time `json:"updated_at"`
+		HasDeprecatedTLS    bool      `json:"has_deprecated_tls"`
+		HasExpiredSSL       bool      `json:"has_expired_ssl"`
+		HasMismatchedSSL    bool      `json:"has_mismatched_ssl"`
+		HasRevokedSSL       bool      `json:"has_revoked_ssl"`
+		HasSelfSignedSSL    bool      `json:"has_self_signed_ssl"`
+		HasUntrustedRootSSL bool      `json:"has_untrusted_root_ssl"`
+		HasWildcardTLS      bool      `json:"has_wildcard_tls"`
 	}
 
 	var targetURLs []TargetURLResponse
@@ -5609,6 +5668,13 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.ScopeTargetID,
 			&targetURL.CreatedAt,
 			&targetURL.UpdatedAt,
+			&targetURL.HasDeprecatedTLS,
+			&targetURL.HasExpiredSSL,
+			&targetURL.HasMismatchedSSL,
+			&targetURL.HasRevokedSSL,
+			&targetURL.HasSelfSignedSSL,
+			&targetURL.HasUntrustedRootSSL,
+			&targetURL.HasWildcardTLS,
 		)
 		if err != nil {
 			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
@@ -5617,19 +5683,26 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 		// Convert to response type with proper handling of null values
 		response := TargetURLResponse{
-			ID:              targetURL.ID,
-			URL:             targetURL.URL,
-			Screenshot:      nullStringToString(targetURL.Screenshot),
-			StatusCode:      targetURL.StatusCode,
-			Title:           nullStringToString(targetURL.Title),
-			WebServer:       nullStringToString(targetURL.WebServer),
-			Technologies:    targetURL.Technologies,
-			ContentLength:   targetURL.ContentLength,
-			NewlyDiscovered: targetURL.NewlyDiscovered,
-			NoLongerLive:    targetURL.NoLongerLive,
-			ScopeTargetID:   targetURL.ScopeTargetID,
-			CreatedAt:       targetURL.CreatedAt,
-			UpdatedAt:       targetURL.UpdatedAt,
+			ID:                  targetURL.ID,
+			URL:                 targetURL.URL,
+			Screenshot:          nullStringToString(targetURL.Screenshot),
+			StatusCode:          targetURL.StatusCode,
+			Title:               nullStringToString(targetURL.Title),
+			WebServer:           nullStringToString(targetURL.WebServer),
+			Technologies:        targetURL.Technologies,
+			ContentLength:       targetURL.ContentLength,
+			NewlyDiscovered:     targetURL.NewlyDiscovered,
+			NoLongerLive:        targetURL.NoLongerLive,
+			ScopeTargetID:       targetURL.ScopeTargetID,
+			CreatedAt:           targetURL.CreatedAt,
+			UpdatedAt:           targetURL.UpdatedAt,
+			HasDeprecatedTLS:    targetURL.HasDeprecatedTLS,
+			HasExpiredSSL:       targetURL.HasExpiredSSL,
+			HasMismatchedSSL:    targetURL.HasMismatchedSSL,
+			HasRevokedSSL:       targetURL.HasRevokedSSL,
+			HasSelfSignedSSL:    targetURL.HasSelfSignedSSL,
+			HasUntrustedRootSSL: targetURL.HasUntrustedRootSSL,
+			HasWildcardTLS:      targetURL.HasWildcardTLS,
 		}
 		targetURLs = append(targetURLs, response)
 	}
@@ -5649,4 +5722,403 @@ func normalizeURL(url string) string {
 	}
 
 	return url
+}
+
+func runNucleiSSLScan(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		FQDN string `json:"fqdn" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+		return
+	}
+
+	domain := payload.FQDN
+	wildcardDomain := fmt.Sprintf("*.%s", domain)
+
+	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO nuclei_ssl_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go executeAndParseNucleiSSLScan(scanID, domain)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func executeAndParseNucleiSSLScan(scanID, domain string) {
+	log.Printf("[INFO] Starting Nuclei SSL scan for domain %s (scan ID: %s)", domain, scanID)
+	startTime := time.Now()
+
+	// Get scope target ID and latest httpx results
+	var scopeTargetID string
+	err := dbPool.QueryRow(context.Background(),
+		`SELECT scope_target_id FROM nuclei_ssl_scans WHERE scan_id = $1`,
+		scanID).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scope target ID: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Get latest httpx results
+	var httpxResults string
+	err = dbPool.QueryRow(context.Background(), `
+		SELECT result 
+		FROM httpx_scans 
+		WHERE scope_target_id = $1 
+		AND status = 'success' 
+		ORDER BY created_at DESC 
+		LIMIT 1`, scopeTargetID).Scan(&httpxResults)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get httpx results: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get httpx results: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Create a temporary file for URLs
+	tempFile, err := os.CreateTemp("", "urls-*.txt")
+	if err != nil {
+		log.Printf("[ERROR] Failed to create temp file for scan ID %s: %v", scanID, err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	log.Printf("[INFO] Created temporary file for URLs: %s", tempFile.Name())
+
+	// Process httpx results and write URLs to temp file
+	var urls []string
+	for _, line := range strings.Split(httpxResults, "\n") {
+		if line == "" {
+			continue
+		}
+		var result struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			log.Printf("[WARN] Failed to parse httpx result line for scan ID %s: %v", scanID, err)
+			continue
+		}
+		if result.URL != "" && strings.HasPrefix(result.URL, "https://") {
+			urls = append(urls, result.URL)
+		}
+	}
+
+	if len(urls) == 0 {
+		log.Printf("[ERROR] No valid HTTPS URLs found in httpx results for scan ID: %s", scanID)
+		updateNucleiSSLScanStatus(scanID, "error", "", "No valid HTTPS URLs found in httpx results", "", time.Since(startTime).String())
+		return
+	}
+
+	// Write URLs to temp file
+	if err := os.WriteFile(tempFile.Name(), []byte(strings.Join(urls, "\n")), 0644); err != nil {
+		log.Printf("[ERROR] Failed to write URLs to temp file for scan ID %s: %v", scanID, err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write URLs to temp file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	log.Printf("[INFO] Successfully wrote %d URLs to temp file for scan ID: %s", len(urls), scanID)
+
+	// Define SSL templates to run
+	sslTemplates := []string{
+		"ssl/deprecated-tls.yaml",
+		"ssl/expired-ssl.yaml",
+		"ssl/mismatched-ssl-certificate.yaml",
+		"ssl/revoked-ssl-certificate.yaml",
+		"ssl/self-signed-ssl.yaml",
+		"ssl/untrusted-root-certificate.yaml",
+		"ssl/wildcard-tls.yaml",
+	}
+
+	var allResults []map[string]interface{}
+	var allStderr bytes.Buffer
+	var allCommands []string
+
+	// Run each template
+	for _, template := range sslTemplates {
+		log.Printf("[INFO] Running template %s for scan ID: %s", template, scanID)
+
+		// First, copy the URLs file into the container
+		copyCmd := exec.Command(
+			"docker", "cp",
+			tempFile.Name(),
+			fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
+		)
+		if err := copyCmd.Run(); err != nil {
+			log.Printf("[ERROR] Failed to copy URLs file to container: %v", err)
+			continue
+		}
+
+		cmd := exec.Command(
+			"docker", "exec", "ars0n-framework-v2-nuclei-1",
+			"nuclei",
+			"-t", fmt.Sprintf("/root/nuclei-templates/%s", template),
+			"-list", "/urls.txt",
+			"-v",
+		)
+		log.Printf("[INFO] Executing command: %s", cmd.String())
+		allCommands = append(allCommands, cmd.String())
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		allStderr.Write(stderr.Bytes())
+
+		err := cmd.Run()
+		if err != nil {
+			log.Printf("[WARN] Template %s failed: %v", template, err)
+			continue
+		}
+
+		log.Printf("[DEBUG] Raw output for template %s:\n%s", template, stdout.String())
+
+		// Process results for this template
+		vulnerabilitiesFound := false
+		for _, line := range strings.Split(stdout.String(), "\n") {
+			log.Printf("[DEBUG] Processing line: %s", line)
+
+			if strings.Contains(line, "[VUL]") ||
+				(strings.Contains(line, "[wildcard-tls]") && strings.Contains(line, "[ssl]") && strings.Contains(line, "[info]")) ||
+				(strings.Contains(line, template) && strings.Contains(line, "[info]")) {
+				vulnerabilitiesFound = true
+				log.Printf("[INFO] Found finding with template %s: %s", template, line)
+
+				// Extract URL from the line
+				var url string
+				if strings.Contains(line, ":443") {
+					parts := strings.Split(line, " ")
+					log.Printf("[DEBUG] Split line into %d parts: %v", len(parts), parts)
+					for _, part := range parts {
+						if strings.Contains(part, ":443") {
+							host := strings.TrimSuffix(part, ":443")
+							url = "https://" + host
+							log.Printf("[DEBUG] Extracted URL from part %s: %s", part, url)
+							break
+						}
+					}
+				}
+
+				if url == "" {
+					log.Printf("[DEBUG] No URL could be extracted from line, skipping")
+					continue
+				}
+
+				// Normalize URL
+				url = normalizeURL(url)
+				log.Printf("[DEBUG] Normalized URL: %s", url)
+
+				result := map[string]interface{}{
+					"template-id": strings.TrimSuffix(filepath.Base(template), ".yaml"),
+					"matched":     url,
+					"raw-output":  line,
+				}
+				log.Printf("[DEBUG] Created result object: %+v", result)
+				allResults = append(allResults, result)
+
+				// Update target URLs with results
+				var updateField string
+				switch strings.TrimSuffix(filepath.Base(template), ".yaml") {
+				case "deprecated-tls":
+					updateField = "has_deprecated_tls"
+				case "expired-ssl":
+					updateField = "has_expired_ssl"
+				case "mismatched-ssl-certificate":
+					updateField = "has_mismatched_ssl"
+				case "revoked-ssl-certificate":
+					updateField = "has_revoked_ssl"
+				case "self-signed-ssl":
+					updateField = "has_self_signed_ssl"
+				case "untrusted-root-certificate":
+					updateField = "has_untrusted_root_ssl"
+				case "wildcard-tls":
+					updateField = "has_wildcard_tls"
+				default:
+					log.Printf("[WARN] Unknown template type: %s", template)
+					continue
+				}
+				log.Printf("[DEBUG] Using update field: %s for template: %s", updateField, template)
+
+				// Check if target URL exists before update
+				var existingID string
+				checkQuery := `SELECT id FROM target_urls WHERE url = $1`
+				err := dbPool.QueryRow(context.Background(), checkQuery, url).Scan(&existingID)
+				if err == pgx.ErrNoRows {
+					log.Printf("[WARN] Target URL %s not found in database", url)
+					continue
+				} else if err != nil {
+					log.Printf("[ERROR] Error checking target URL existence: %v", err)
+					continue
+				}
+				log.Printf("[DEBUG] Found existing target URL with ID: %s", existingID)
+
+				// Update the target URL
+				query := fmt.Sprintf(`UPDATE target_urls SET %s = true, updated_at = NOW() WHERE url = $1`, updateField)
+				log.Printf("[DEBUG] Executing update query: %s with URL: %s", query, url)
+				commandTag, err := dbPool.Exec(context.Background(), query, url)
+				if err != nil {
+					log.Printf("[ERROR] Failed to update target URL %s for template %s: %v", url, template, err)
+				} else {
+					rowsAffected := commandTag.RowsAffected()
+					log.Printf("[INFO] Successfully updated target URL %s with %s = true (Rows affected: %d)", url, updateField, rowsAffected)
+				}
+			} else {
+				log.Printf("[DEBUG] Line did not match any finding criteria")
+			}
+		}
+
+		if !vulnerabilitiesFound {
+			log.Printf("[INFO] No findings with template %s", template)
+		} else {
+			log.Printf("[INFO] Completed scan with template %s - findings were found", template)
+		}
+	}
+
+	// Convert results to JSON string
+	resultsJSON, err := json.Marshal(allResults)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal results to JSON: %v", err)
+		resultsJSON = []byte("[]")
+	}
+	log.Printf("[DEBUG] Final results JSON: %s", string(resultsJSON))
+
+	// Update scan status
+	updateNucleiSSLScanStatus(
+		scanID,
+		"success",
+		string(resultsJSON),
+		allStderr.String(),
+		strings.Join(allCommands, "\n"),
+		time.Since(startTime).String(),
+	)
+
+	log.Printf("[INFO] SSL scan completed for scan ID: %s", scanID)
+}
+
+func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Nuclei SSL scan status for %s to %s", scanID, status)
+	query := `UPDATE nuclei_ssl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update Nuclei SSL scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated Nuclei SSL scan status for %s", scanID)
+	}
+}
+
+func getNucleiSSLScanStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scanID := vars["scan_id"]
+
+	var scan NucleiSSLStatus
+	query := `SELECT * FROM nuclei_ssl_scans WHERE scan_id = $1`
+	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+		&scan.ID,
+		&scan.ScanID,
+		&scan.Domain,
+		&scan.Status,
+		&scan.Result,
+		&scan.Error,
+		&scan.StdOut,
+		&scan.StdErr,
+		&scan.Command,
+		&scan.ExecTime,
+		&scan.CreatedAt,
+		&scan.ScopeTargetID,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Scan not found", http.StatusNotFound)
+		} else {
+			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := map[string]interface{}{
+		"id":              scan.ID,
+		"scan_id":         scan.ScanID,
+		"domain":          scan.Domain,
+		"status":          scan.Status,
+		"result":          nullStringToString(scan.Result),
+		"error":           nullStringToString(scan.Error),
+		"stdout":          nullStringToString(scan.StdOut),
+		"stderr":          nullStringToString(scan.StdErr),
+		"command":         nullStringToString(scan.Command),
+		"execution_time":  nullStringToString(scan.ExecTime),
+		"created_at":      scan.CreatedAt.Format(time.RFC3339),
+		"scope_target_id": scan.ScopeTargetID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func getNucleiSSLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	scopeTargetID := vars["id"]
+
+	query := `SELECT * FROM nuclei_ssl_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scans: %v", err)
+		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scans []map[string]interface{}
+	for rows.Next() {
+		var scan NucleiSSLStatus
+		err := rows.Scan(
+			&scan.ID,
+			&scan.ScanID,
+			&scan.Domain,
+			&scan.Status,
+			&scan.Result,
+			&scan.Error,
+			&scan.StdOut,
+			&scan.StdErr,
+			&scan.Command,
+			&scan.ExecTime,
+			&scan.CreatedAt,
+			&scan.ScopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan row: %v", err)
+			continue
+		}
+
+		scans = append(scans, map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          nullStringToString(scan.Result),
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt.Format(time.RFC3339),
+			"scope_target_id": scan.ScopeTargetID,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scans)
 }

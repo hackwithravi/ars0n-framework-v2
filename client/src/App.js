@@ -73,6 +73,9 @@ import initiateSubdomainizerScan from './utils/initiateSubdomainizerScan';
 import monitorSubdomainizerScanStatus from './utils/monitorSubdomainizerScanStatus';
 import initiateNucleiScreenshotScan from './utils/initiateNucleiScreenshotScan';
 import monitorNucleiScreenshotScanStatus from './utils/monitorNucleiScreenshotScanStatus';
+import initiateNucleiSSLScan from './utils/initiateNucleiSSLScan';
+import monitorNucleiSSLScanStatus from './utils/monitorNucleiSSLScanStatus';
+import SSLMetadataModal from './modals/SSLMetadataModal';
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -164,10 +167,17 @@ function App() {
   const [mostRecentNucleiScreenshotScanStatus, setMostRecentNucleiScreenshotScanStatus] = useState(null);
   const [mostRecentNucleiScreenshotScan, setMostRecentNucleiScreenshotScan] = useState(null);
   const [isNucleiScreenshotScanning, setIsNucleiScreenshotScanning] = useState(false);
+  const [nucleiSSLScans, setNucleiSSLScans] = useState([]);
+  const [mostRecentNucleiSSLScanStatus, setMostRecentNucleiSSLScanStatus] = useState(null);
+  const [mostRecentNucleiSSLScan, setMostRecentNucleiSSLScan] = useState(null);
+  const [isNucleiSSLScanning, setIsNucleiSSLScanning] = useState(false);
+  const [showSSLMetadataModal, setShowSSLMetadataModal] = useState(false);
+  const [targetURLs, setTargetURLs] = useState([]);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
   const handleCloseUniqueSubdomainsModal = () => setShowUniqueSubdomainsModal(false);
+  const handleCloseSSLMetadataModal = () => setShowSSLMetadataModal(false);
 
   useEffect(() => {
     fetchScopeTargets();
@@ -900,6 +910,45 @@ function App() {
       );
     }
   }, [activeTarget]);
+
+  const startNucleiSSLScan = () => {
+    initiateNucleiSSLScan(
+      activeTarget,
+      monitorNucleiSSLScanStatus,
+      setIsNucleiSSLScanning,
+      setNucleiSSLScans,
+      setMostRecentNucleiSSLScanStatus,
+      setMostRecentNucleiSSLScan
+    );
+  };
+
+  useEffect(() => {
+    if (activeTarget) {
+      monitorNucleiSSLScanStatus(
+        activeTarget,
+        setNucleiSSLScans,
+        setMostRecentNucleiSSLScan,
+        setIsNucleiSSLScanning,
+        setMostRecentNucleiSSLScanStatus
+      );
+    }
+  }, [activeTarget]);
+
+  const handleOpenSSLMetadataModal = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/target-urls`
+      );
+      if (!response.ok) {
+        throw new Error('Failed to fetch target URLs');
+      }
+      const data = await response.json();
+      setTargetURLs(data);
+      setShowSSLMetadataModal(true);
+    } catch (error) {
+      console.error('Error fetching target URLs:', error);
+    }
+  };
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
@@ -1901,7 +1950,26 @@ function App() {
                           >
                             View Screenshots
                           </Button>
-                          <Button variant="outline-danger" className="flex-fill">Gather Metadata</Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={startNucleiSSLScan}
+                            disabled={isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending"}
+                          >
+                            <div className="btn-content">
+                              {isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" ? (
+                                <div className="spinner"></div>
+                              ) : 'Gather Metadata'}
+                            </div>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            className="flex-fill"
+                            onClick={handleOpenSSLMetadataModal}
+                            disabled={!mostRecentNucleiSSLScan || mostRecentNucleiSSLScan.status !== "success"}
+                          >
+                            View SSL Metadata
+                          </Button>
                           <Button variant="outline-danger" className="flex-fill">Generate Report</Button>
                           <Button variant="outline-danger" className="flex-fill">Select Target URL</Button>
                         </div>
@@ -1931,6 +1999,11 @@ function App() {
           </div>
         </Fade>
       )}
+      <SSLMetadataModal
+        showSSLMetadataModal={showSSLMetadataModal}
+        handleCloseSSLMetadataModal={handleCloseSSLMetadataModal}
+        targetURLs={targetURLs}
+      />
     </Container>
   );
 }

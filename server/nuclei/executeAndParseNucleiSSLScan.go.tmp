@@ -1,0 +1,1 @@
+if strings.Contains(line, "[VUL]") || (strings.Contains(line, template) && strings.Contains(line, "[info]")) || (strings.Contains(line, "[wildcard-tls]") && strings.Contains(line, "[ssl]") && strings.Contains(line, "[info]")) {
