@@ -64,7 +64,21 @@ const ScreenshotResultsModal = ({
             <div key={index} className="screenshot-item mb-4">
               <div className="d-flex flex-column mb-2">
                 <div className="d-flex justify-content-between align-items-center">
-                  <h6 className="text-white mb-0 text-break flex-grow-1">{targetURL.url}</h6>
+                  <h6 className="text-white mb-0 text-break flex-grow-1">
+                    <a 
+                      href={targetURL.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-white text-decoration-none hover-underline"
+                      style={{ 
+                        ':hover': { 
+                          textDecoration: 'underline !important' 
+                        } 
+                      }}
+                    >
+                      {targetURL.url}
+                    </a>
+                  </h6>
                   <button
                     onClick={() => handleExpand(index)}
                     className="btn btn-outline-danger btn-sm ms-2"

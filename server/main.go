@@ -5422,18 +5422,19 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 
 	// Check if target URL already exists
 	var existingID string
+	var isNoLongerLive bool
 	err := dbPool.QueryRow(context.Background(),
-		`SELECT id FROM target_urls WHERE url = $1`,
-		url).Scan(&existingID)
+		`SELECT id, no_longer_live FROM target_urls WHERE url = $1`,
+		url).Scan(&existingID, &isNoLongerLive)
 
 	if err == pgx.ErrNoRows {
 		log.Printf("[DEBUG] Creating new target URL entry for: %s", url)
-		// Insert new target URL
+		// Insert new target URL with newly_discovered set to true
 		_, err = dbPool.Exec(context.Background(),
 			`INSERT INTO target_urls (
                 url, status_code, title, web_server, technologies, 
-                content_length, scope_target_id, newly_discovered
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+                content_length, scope_target_id, newly_discovered, no_longer_live
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, false)`,
 			url,
 			httpxData["status_code"],
 			httpxData["title"],
@@ -5448,17 +5449,36 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 		log.Printf("[DEBUG] Successfully created new target URL entry for: %s", url)
 	} else if err == nil {
 		log.Printf("[DEBUG] Updating existing target URL entry for: %s", url)
-		// Update existing target URL
+
+		var updateQuery string
+		if isNoLongerLive {
+			// If URL was previously marked as no longer live, mark it as newly discovered
+			updateQuery = `UPDATE target_urls SET 
+				status_code = $1,
+				title = $2,
+				web_server = $3,
+				technologies = $4,
+				content_length = $5,
+				no_longer_live = false,
+				newly_discovered = true,
+				updated_at = NOW()
+			WHERE id = $6`
+		} else {
+			// If URL was already live, just update its data and set newly_discovered to false
+			updateQuery = `UPDATE target_urls SET 
+				status_code = $1,
+				title = $2,
+				web_server = $3,
+				technologies = $4,
+				content_length = $5,
+				no_longer_live = false,
+				newly_discovered = false,
+				updated_at = NOW()
+			WHERE id = $6`
+		}
+
 		_, err = dbPool.Exec(context.Background(),
-			`UPDATE target_urls SET 
-                status_code = $1,
-                title = $2,
-                web_server = $3,
-                technologies = $4,
-                content_length = $5,
-                no_longer_live = false,
-                updated_at = NOW()
-            WHERE id = $6`,
+			updateQuery,
 			httpxData["status_code"],
 			httpxData["title"],
 			httpxData["webserver"],
@@ -5513,9 +5533,11 @@ func updateTargetURLFromScreenshot(url, screenshot string) error {
 }
 
 func markOldTargetURLsAsNoLongerLive(scopeTargetID string, liveURLs []string) error {
+	// Mark URLs that weren't found in this scan as no longer live
 	_, err := dbPool.Exec(context.Background(),
 		`UPDATE target_urls SET 
 			no_longer_live = true,
+			newly_discovered = false,
 			updated_at = NOW()
 		WHERE scope_target_id = $1 
 		AND url NOT IN (SELECT unnest($2::text[]))`,
