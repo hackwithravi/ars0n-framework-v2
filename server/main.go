@@ -2449,7 +2449,8 @@ func executeAndParseSublist3rScan(scanID, domain string) {
 	log.Printf("[DEBUG] Final result string length: %d bytes", len(result))
 
 	log.Printf("[INFO] Updating scan status in database for scan ID: %s", scanID)
-	updateSublist3rScanStatus(scanID, "completed", result, stderr.String(), cmd.String(), execTime)
+	updateSublist3rScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+
 	log.Printf("[INFO] Sublist3r scan completed successfully for domain %s (scan ID: %s)", domain, scanID)
 	log.Printf("[INFO] Total execution time including processing: %s", time.Since(startTime))
 }

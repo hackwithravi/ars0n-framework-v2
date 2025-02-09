@@ -1075,13 +1075,16 @@ function App() {
       <ReconResultsModal
         showReconResultsModal={showReconResultsModal}
         handleCloseReconResultsModal={handleCloseReconResultsModal}
-        amassResults={mostRecentAmassScan}
+        amassResults={{ status: mostRecentAmassScan?.status, result: subdomains, execution_time: mostRecentAmassScan?.execution_time }}
         sublist3rResults={mostRecentSublist3rScan}
         assetfinderResults={mostRecentAssetfinderScan}
         gauResults={mostRecentGauScan}
         ctlResults={mostRecentCTLScan}
         subfinderResults={mostRecentSubfinderScan}
         shuffleDNSResults={mostRecentShuffleDNSScan}
+        gospiderResults={mostRecentGoSpiderScan}
+        subdomainizerResults={mostRecentSubdomainizerScan}
+        cewlResults={mostRecentShuffleDNSCustomScan}
       />
 
       <UniqueSubdomainsModal
@@ -1798,7 +1801,6 @@ function App() {
                           </div>
                         </div>
                         <div className="d-flex justify-content-between mt-auto gap-2">
-                          <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
                           <Button 
                             variant="outline-danger" 
                             className="flex-fill" 
@@ -1878,6 +1880,7 @@ function App() {
                           </Card.Text>
                         </div>
                         <div className="d-flex justify-content-between w-100 mt-3 gap-2">
+                        <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
                           <Button 
                             variant="outline-danger" 
                             className="flex-fill"

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Modal, Table, Badge } from 'react-bootstrap';
 
 export const ReconResultsModal = ({
@@ -9,10 +8,28 @@ export const ReconResultsModal = ({
     assetfinderResults,
     gauResults,
     ctlResults,
-    subfinderResults
+    subfinderResults,
+    shuffleDNSResults,
+    gospiderResults,
+    subdomainizerResults,
+    cewlResults
 }) => {
     const getSubdomainCount = (results, tool) => {
-        if (!results || !results.result) return 0;
+        if (!results) return 0;
+
+        if (tool === 'amass') {
+            try {
+                if (Array.isArray(results.result)) {
+                    return results.result.length;
+                }
+                return 0;
+            } catch (e) {
+                console.error('Error getting Amass subdomain count:', e);
+                return 0;
+            }
+        }
+
+        if (!results.result) return 0;
 
         if (tool === 'gau') {
             try {
@@ -33,26 +50,109 @@ export const ReconResultsModal = ({
             }
         }
 
+        if (tool === 'gospider') {
+            try {
+                const lines = results.result.split('\n').filter(line => line.trim());
+                const uniqueSubdomains = new Set();
+                
+                lines.forEach(line => {
+                    try {
+                        // Extract any URLs from the line
+                        const urlRegex = /https?:\/\/[^\s<>"']+/g;
+                        const urls = line.match(urlRegex);
+                        
+                        if (urls) {
+                            urls.forEach(url => {
+                                try {
+                                    const parsedUrl = new URL(url);
+                                    uniqueSubdomains.add(parsedUrl.hostname);
+                                } catch (e) {}
+                            });
+                        }
+                        
+                        // Also try to extract domains directly
+                        const domainRegex = /[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}/g;
+                        const domains = line.match(domainRegex);
+                        
+                        if (domains) {
+                            domains.forEach(domain => {
+                                uniqueSubdomains.add(domain);
+                            });
+                        }
+                    } catch (e) {}
+                });
+                
+                return uniqueSubdomains.size;
+            } catch (e) {
+                console.error('Error parsing GoSpider results:', e);
+                return 0;
+            }
+        }
+
+        if (tool === 'subdomainizer') {
+            try {
+                const lines = results.result.split('\n').filter(line => line.trim());
+                const uniqueSubdomains = new Set();
+                lines.forEach(line => {
+                    try {
+                        // Look for URLs or domain patterns
+                        const urlMatch = line.match(/(?:https?:\/\/)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,})/);
+                        if (urlMatch && urlMatch[1]) {
+                            uniqueSubdomains.add(urlMatch[1]);
+                        }
+                    } catch (e) {}
+                });
+                return uniqueSubdomains.size;
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        if (tool === 'cewl') {
+            try {
+                const lines = results.result.split('\n').filter(line => line.trim());
+                return lines.length;
+            } catch (e) {
+                return 0;
+            }
+        }
+
         return results.result.split('\n').filter(line => line.trim()).length;
     };
 
     const formatExecutionTime = (timeStr) => {
         if (!timeStr) return 'N/A';
         
-        // Convert Go duration format to readable format
         try {
-            // Remove 's' suffix if present
-            timeStr = timeStr.replace('s', '');
-            
-            // Convert to number (seconds)
-            const totalSeconds = parseFloat(timeStr);
-            
-            if (isNaN(totalSeconds)) return timeStr;
+            // Handle Go's duration format (e.g., "1m30.5s", "15.2s", "1h2m30s")
+            let hours = 0;
+            let minutes = 0;
+            let seconds = 0;
+            let milliseconds = 0;
 
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            const seconds = Math.floor(totalSeconds % 60);
-            const milliseconds = Math.round((totalSeconds % 1) * 1000);
+            // Extract hours if present
+            const hourMatch = timeStr.match(/(\d+)h/);
+            if (hourMatch) {
+                hours = parseInt(hourMatch[1]);
+                timeStr = timeStr.replace(hourMatch[0], '');
+            }
+
+            // Extract minutes if present
+            const minMatch = timeStr.match(/(\d+)m/);
+            if (minMatch) {
+                minutes = parseInt(minMatch[1]);
+                timeStr = timeStr.replace(minMatch[0], '');
+            }
+
+            // Extract seconds and milliseconds
+            const secMatch = timeStr.match(/([\d.]+)s/);
+            if (secMatch) {
+                const secParts = secMatch[1].split('.');
+                seconds = parseInt(secParts[0]);
+                if (secParts[1]) {
+                    milliseconds = parseInt(secParts[1].padEnd(3, '0'));
+                }
+            }
 
             let formattedTime = '';
             
@@ -88,12 +188,16 @@ export const ReconResultsModal = ({
     };
 
     const tools = [
-        { name: 'Amass', results: amassResults, link: 'https://github.com/owasp-amass/amass' },
+        { name: 'Amass', results: amassResults, link: 'https://github.com/owasp-amass/amass', tool: 'amass' },
         { name: 'Sublist3r', results: sublist3rResults, link: 'https://github.com/aboul3la/Sublist3r' },
         { name: 'Assetfinder', results: assetfinderResults, link: 'https://github.com/tomnomnom/assetfinder' },
         { name: 'GAU', results: gauResults, link: 'https://github.com/lc/gau', tool: 'gau' },
         { name: 'CTL', results: ctlResults, link: 'https://github.com/pdiscoveryio/ctl' },
-        { name: 'Subfinder', results: subfinderResults, link: 'https://github.com/projectdiscovery/subfinder' }
+        { name: 'Subfinder', results: subfinderResults, link: 'https://github.com/projectdiscovery/subfinder' },
+        { name: 'ShuffleDNS', results: shuffleDNSResults, link: 'https://github.com/projectdiscovery/shuffledns' },
+        { name: 'CeWL + ShuffleDNS', results: cewlResults, link: 'https://github.com/digininja/CeWL', tool: 'cewl' },
+        { name: 'GoSpider', results: gospiderResults, link: 'https://github.com/jaeles-project/gospider', tool: 'gospider' },
+        { name: 'Subdomainizer', results: subdomainizerResults, link: 'https://github.com/nsonaniya2010/SubDomainizer', tool: 'subdomainizer' }
     ];
 
     return (
@@ -107,7 +211,7 @@ export const ReconResultsModal = ({
                         <tr>
                             <th>Tool</th>
                             <th className="text-center">Status</th>
-                            <th className="text-center">Subdomains</th>
+                            <th className="text-center">Results</th>
                             <th className="text-center">Execution Time</th>
                         </tr>
                     </thead>
@@ -129,6 +233,7 @@ export const ReconResultsModal = ({
                                 </td>
                                 <td className="text-center">
                                     {getSubdomainCount(tool.results, tool.tool)}
+                                    {tool.columnTitle ? ` ${tool.columnTitle}` : ' Subdomains'}
                                 </td>
                                 <td className="text-center">
                                     {formatExecutionTime(tool.results?.execution_time)}
