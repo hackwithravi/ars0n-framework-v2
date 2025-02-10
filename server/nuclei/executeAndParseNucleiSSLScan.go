@@ -7,5 +7,4 @@ var sslTemplates = []string{
 	"ssl/revoked-ssl-certificate.yaml",
 	"ssl/self-signed-ssl.yaml",
 	"ssl/untrusted-root-certificate.yaml",
-	"ssl/wildcard-tls.yaml",
 }

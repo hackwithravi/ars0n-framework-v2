@@ -1968,7 +1968,7 @@ function App() {
                             onClick={handleOpenSSLMetadataModal}
                             disabled={!mostRecentNucleiSSLScan || mostRecentNucleiSSLScan.status !== "success"}
                           >
-                            View SSL Metadata
+                            View Metadata
                           </Button>
                           <Button variant="outline-danger" className="flex-fill">Generate Report</Button>
                           <Button variant="outline-danger" className="flex-fill">Select Target URL</Button>

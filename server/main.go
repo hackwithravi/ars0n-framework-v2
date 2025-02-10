@@ -26,304 +26,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ASN struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Number    string    `json:"number"`
-	RawData   string    `json:"raw_data"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type Subnet struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	CIDR      string    `json:"cidr"`
-	RawData   string    `json:"raw_data"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type DNSRecord struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Record    string    `json:"record"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type IPAddress struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Address   string    `json:"address"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type Subdomain struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Subdomain string    `json:"subdomain"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type CloudDomain struct {
-	ID        string    `json:"id"`
-	Domain    string    `json:"domain"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type RequestPayload struct {
-	Type        string `json:"type"`
-	Mode        string `json:"mode"`
-	ScopeTarget string `json:"scope_target"`
-	Active      bool   `json:"active"`
-}
-
-type ResponsePayload struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Mode        string `json:"mode"`
-	ScopeTarget string `json:"scope_target"`
-	Active      bool   `json:"active"`
-}
-
-type AmassScanStatus struct {
-	ID        string         `json:"id"`
-	ScanID    string         `json:"scan_id"`
-	Domain    string         `json:"domain"`
-	Status    string         `json:"status"`
-	Result    sql.NullString `json:"result,omitempty"`
-	Error     sql.NullString `json:"error,omitempty"`
-	StdOut    sql.NullString `json:"stdout,omitempty"`
-	StdErr    sql.NullString `json:"stderr,omitempty"`
-	Command   sql.NullString `json:"command,omitempty"`
-	ExecTime  sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
-type ServiceProvider struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Provider  string    `json:"provider"`
-	RawData   string    `json:"raw_data"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type HttpxScanStatus struct {
-	ID        string         `json:"id"`
-	ScanID    string         `json:"scan_id"`
-	Domain    string         `json:"domain"`
-	Status    string         `json:"status"`
-	Result    sql.NullString `json:"result,omitempty"`
-	Error     sql.NullString `json:"error,omitempty"`
-	StdOut    sql.NullString `json:"stdout,omitempty"`
-	StdErr    sql.NullString `json:"stderr,omitempty"`
-	Command   sql.NullString `json:"command,omitempty"`
-	ExecTime  sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
-type ScanSummary struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Domain    string    `json:"domain"`
-	Status    string    `json:"status"`
-	Result    string    `json:"result,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	StdOut    string    `json:"stdout,omitempty"`
-	StdErr    string    `json:"stderr,omitempty"`
-	Command   string    `json:"command,omitempty"`
-	ExecTime  string    `json:"execution_time,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	ScanType  string    `json:"scan_type"`
-}
-
-type GauScanStatus struct {
-	ID        string         `json:"id"`
-	ScanID    string         `json:"scan_id"`
-	Domain    string         `json:"domain"`
-	Status    string         `json:"status"`
-	Result    sql.NullString `json:"result,omitempty"`
-	Error     sql.NullString `json:"error,omitempty"`
-	StdOut    sql.NullString `json:"stdout,omitempty"`
-	StdErr    sql.NullString `json:"stderr,omitempty"`
-	Command   sql.NullString `json:"command,omitempty"`
-	ExecTime  sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
-type Sublist3rScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type AssetfinderScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type CTLScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type SubfinderScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type ShuffleDNSScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type CeWLScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	URL           string         `json:"url"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type GoSpiderScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type SubdomainizerScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type NucleiScreenshotStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type NucleiSSLStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type TargetURL struct {
-	ID                  string         `json:"id"`
-	URL                 string         `json:"url"`
-	Screenshot          sql.NullString `json:"screenshot,omitempty"`
-	StatusCode          int            `json:"status_code"`
-	Title               sql.NullString `json:"title,omitempty"`
-	WebServer           sql.NullString `json:"web_server,omitempty"`
-	Technologies        []string       `json:"technologies"`
-	ContentLength       int            `json:"content_length"`
-	NewlyDiscovered     bool           `json:"newly_discovered"`
-	NoLongerLive        bool           `json:"no_longer_live"`
-	ScopeTargetID       string         `json:"scope_target_id"`
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-	HasDeprecatedTLS    bool           `json:"has_deprecated_tls"`
-	HasExpiredSSL       bool           `json:"has_expired_ssl"`
-	HasMismatchedSSL    bool           `json:"has_mismatched_ssl"`
-	HasRevokedSSL       bool           `json:"has_revoked_ssl"`
-	HasSelfSignedSSL    bool           `json:"has_self_signed_ssl"`
-	HasUntrustedRootSSL bool           `json:"has_untrusted_root_ssl"`
-	HasWildcardTLS      bool           `json:"has_wildcard_tls"`
-}
-
 var dbPool *pgxpool.Pool
 
 func main() {
@@ -436,311 +138,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-func createTables() {
-	queries := []string{
-		`CREATE EXTENSION IF NOT EXISTS pgcrypto;`,
-		`DROP TABLE IF EXISTS requests CASCADE;`,
-		`CREATE TABLE IF NOT EXISTS scope_targets (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			type VARCHAR(50) NOT NULL,
-			mode VARCHAR(50) NOT NULL,
-			scope_target TEXT NOT NULL,
-			active BOOLEAN DEFAULT false,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS amass_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE, 
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS dns_records (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			record TEXT NOT NULL,
-			record_type TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS ips (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			ip_address TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS subdomains (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			subdomain TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS cloud_domains (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			domain TEXT NOT NULL,
-			type TEXT NOT NULL CHECK (type IN ('aws', 'gcp', 'azu')),
-			created_at TIMESTAMP DEFAULT NOW(),
-			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS asns (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			number TEXT NOT NULL,
-			raw_data TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS subnets (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			cidr TEXT NOT NULL,
-			raw_data TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW()
-		);`,
-		`CREATE TABLE IF NOT EXISTS service_providers (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL,
-			provider TEXT NOT NULL,
-			raw_data TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW(),
-			FOREIGN KEY (scan_id) REFERENCES amass_scans(scan_id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS httpx_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE, 
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS gau_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE, 
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS sublist3r_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS assetfinder_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS ctl_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS subfinder_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS consolidated_subdomains (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
-			subdomain TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT NOW(),
-			UNIQUE(scope_target_id, subdomain)
-		);`,
-		`CREATE TABLE IF NOT EXISTS shuffledns_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS cewl_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			url TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS shufflednscustom_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS gospider_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS subdomainizer_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS nuclei_screenshots (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS nuclei_ssl_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS target_urls (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			url TEXT NOT NULL UNIQUE,
-			screenshot TEXT,
-			status_code INTEGER,
-			title TEXT,
-			web_server TEXT,
-			technologies TEXT[],
-			content_length INTEGER,
-			newly_discovered BOOLEAN DEFAULT false,
-			no_longer_live BOOLEAN DEFAULT false,
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
-			created_at TIMESTAMP DEFAULT NOW(),
-			updated_at TIMESTAMP DEFAULT NOW(),
-			has_deprecated_tls BOOLEAN DEFAULT false,
-			has_expired_ssl BOOLEAN DEFAULT false,
-			has_mismatched_ssl BOOLEAN DEFAULT false,
-			has_revoked_ssl BOOLEAN DEFAULT false,
-			has_self_signed_ssl BOOLEAN DEFAULT false,
-			has_untrusted_root_ssl BOOLEAN DEFAULT false,
-			has_wildcard_tls BOOLEAN DEFAULT false
-		);`,
-		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
-		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
-	}
-
-	for _, query := range queries {
-		_, err := dbPool.Exec(context.Background(), query)
-		if err != nil {
-			log.Fatalf("[ERROR] Failed to execute query: %s, error: %v", query, err)
-		}
-	}
-
-	deletePendingScansQuery := `DELETE FROM amass_scans WHERE status = 'pending';`
-	_, err := dbPool.Exec(context.Background(), deletePendingScansQuery)
-	if err != nil {
-		log.Fatalf("[ERROR] Failed to delete pending Amass scans: %v", err)
-	}
-	log.Println("[INFO] Deleted any Amass scans with status 'pending'")
 }
 
 func parseAndStoreResults(scanID, domain, result string) {
@@ -892,11 +289,6 @@ func getASNs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	type ASNResponse struct {
-		Number  string `json:"number"`
-		RawData string `json:"raw_data"`
-	}
-
 	var asns []ASNResponse
 	for rows.Next() {
 		var asn ASNResponse
@@ -932,11 +324,6 @@ func getSubnets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-
-	type SubnetResponse struct {
-		CIDR    string `json:"cidr"`
-		RawData string `json:"raw_data"`
-	}
 
 	var subnets []SubnetResponse
 	for rows.Next() {
@@ -1550,11 +937,6 @@ func getServiceProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-
-	type ServiceProviderResponse struct {
-		Provider string `json:"provider"`
-		RawData  string `json:"raw_data"`
-	}
 
 	var providers []ServiceProviderResponse
 	for rows.Next() {
@@ -2890,10 +2272,6 @@ func executeAndParseCTLScan(scanID, domain string) {
 		log.Printf("[ERROR] Failed to read response body: %v", err)
 		updateCTLScanStatus(scanID, "error", "", err.Error(), url, time.Since(startTime).String())
 		return
-	}
-
-	type CertEntry struct {
-		NameValue string `json:"name_value"`
 	}
 
 	var entries []CertEntry
@@ -5628,29 +5006,6 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	type TargetURLResponse struct {
-		ID                  string    `json:"id"`
-		URL                 string    `json:"url"`
-		Screenshot          string    `json:"screenshot,omitempty"`
-		StatusCode          int       `json:"status_code"`
-		Title               string    `json:"title,omitempty"`
-		WebServer           string    `json:"web_server,omitempty"`
-		Technologies        []string  `json:"technologies"`
-		ContentLength       int       `json:"content_length"`
-		NewlyDiscovered     bool      `json:"newly_discovered"`
-		NoLongerLive        bool      `json:"no_longer_live"`
-		ScopeTargetID       string    `json:"scope_target_id"`
-		CreatedAt           time.Time `json:"created_at"`
-		UpdatedAt           time.Time `json:"updated_at"`
-		HasDeprecatedTLS    bool      `json:"has_deprecated_tls"`
-		HasExpiredSSL       bool      `json:"has_expired_ssl"`
-		HasMismatchedSSL    bool      `json:"has_mismatched_ssl"`
-		HasRevokedSSL       bool      `json:"has_revoked_ssl"`
-		HasSelfSignedSSL    bool      `json:"has_self_signed_ssl"`
-		HasUntrustedRootSSL bool      `json:"has_untrusted_root_ssl"`
-		HasWildcardTLS      bool      `json:"has_wildcard_tls"`
-	}
-
 	var targetURLs []TargetURLResponse
 	for rows.Next() {
 		var targetURL TargetURL
@@ -5726,28 +5081,27 @@ func normalizeURL(url string) string {
 
 func runNucleiSSLScan(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		FQDN string `json:"fqdn" binding:"required"`
+		ScopeTargetID string `json:"scope_target_id" binding:"required"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
-		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.ScopeTargetID == "" {
+		http.Error(w, "Invalid request body. `scope_target_id` is required.", http.StatusBadRequest)
 		return
 	}
 
-	domain := payload.FQDN
-	wildcardDomain := fmt.Sprintf("*.%s", domain)
-
-	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
-	var scopeTargetID string
-	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
+	// Get domain from scope target
+	var domain string
+	err := dbPool.QueryRow(context.Background(),
+		`SELECT TRIM(LEADING '*.' FROM scope_target) FROM scope_targets WHERE id = $1`,
+		payload.ScopeTargetID).Scan(&domain)
 	if err != nil {
-		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
-		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
+		log.Printf("[ERROR] Failed to get domain: %v", err)
+		http.Error(w, "Failed to get domain", http.StatusInternalServerError)
 		return
 	}
 
 	scanID := uuid.New().String()
 	insertQuery := `INSERT INTO nuclei_ssl_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
-	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
+	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", payload.ScopeTargetID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create scan record: %v", err)
 		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
@@ -5832,177 +5186,118 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	}
 	log.Printf("[INFO] Successfully wrote %d URLs to temp file for scan ID: %s", len(urls), scanID)
 
-	// Define SSL templates to run
-	sslTemplates := []string{
-		"ssl/deprecated-tls.yaml",
-		"ssl/expired-ssl.yaml",
-		"ssl/mismatched-ssl-certificate.yaml",
-		"ssl/revoked-ssl-certificate.yaml",
-		"ssl/self-signed-ssl.yaml",
-		"ssl/untrusted-root-certificate.yaml",
-		"ssl/wildcard-tls.yaml",
+	// Copy the URLs file into the container
+	copyCmd := exec.Command(
+		"docker", "cp",
+		tempFile.Name(),
+		fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
+	)
+	if err := copyCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to copy URLs file to container: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to copy URLs file: %v", err), "", time.Since(startTime).String())
+		return
 	}
 
-	var allResults []map[string]interface{}
-	var allStderr bytes.Buffer
-	var allCommands []string
+	// Run all templates in one scan with JSON output
+	cmd := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-nuclei-1",
+		"nuclei",
+		"-t", "/root/nuclei-templates/ssl/",
+		"-list", "/urls.txt",
+		"-j",
+		"-o", "/output.json",
+	)
+	log.Printf("[INFO] Executing command: %s", cmd.String())
 
-	// Run each template
-	for _, template := range sslTemplates {
-		log.Printf("[INFO] Running template %s for scan ID: %s", template, scanID)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
-		// First, copy the URLs file into the container
-		copyCmd := exec.Command(
-			"docker", "cp",
-			tempFile.Name(),
-			fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
-		)
-		if err := copyCmd.Run(); err != nil {
-			log.Printf("[ERROR] Failed to copy URLs file to container: %v", err)
-			continue
-		}
-
-		cmd := exec.Command(
-			"docker", "exec", "ars0n-framework-v2-nuclei-1",
-			"nuclei",
-			"-t", fmt.Sprintf("/root/nuclei-templates/%s", template),
-			"-list", "/urls.txt",
-			"-v",
-		)
-		log.Printf("[INFO] Executing command: %s", cmd.String())
-		allCommands = append(allCommands, cmd.String())
-
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		allStderr.Write(stderr.Bytes())
-
-		err := cmd.Run()
-		if err != nil {
-			log.Printf("[WARN] Template %s failed: %v", template, err)
-			continue
-		}
-
-		log.Printf("[DEBUG] Raw output for template %s:\n%s", template, stdout.String())
-
-		// Process results for this template
-		vulnerabilitiesFound := false
-		for _, line := range strings.Split(stdout.String(), "\n") {
-			log.Printf("[DEBUG] Processing line: %s", line)
-
-			if strings.Contains(line, "[VUL]") ||
-				(strings.Contains(line, "[wildcard-tls]") && strings.Contains(line, "[ssl]") && strings.Contains(line, "[info]")) ||
-				(strings.Contains(line, template) && strings.Contains(line, "[info]")) {
-				vulnerabilitiesFound = true
-				log.Printf("[INFO] Found finding with template %s: %s", template, line)
-
-				// Extract URL from the line
-				var url string
-				if strings.Contains(line, ":443") {
-					parts := strings.Split(line, " ")
-					log.Printf("[DEBUG] Split line into %d parts: %v", len(parts), parts)
-					for _, part := range parts {
-						if strings.Contains(part, ":443") {
-							host := strings.TrimSuffix(part, ":443")
-							url = "https://" + host
-							log.Printf("[DEBUG] Extracted URL from part %s: %s", part, url)
-							break
-						}
-					}
-				}
-
-				if url == "" {
-					log.Printf("[DEBUG] No URL could be extracted from line, skipping")
-					continue
-				}
-
-				// Normalize URL
-				url = normalizeURL(url)
-				log.Printf("[DEBUG] Normalized URL: %s", url)
-
-				result := map[string]interface{}{
-					"template-id": strings.TrimSuffix(filepath.Base(template), ".yaml"),
-					"matched":     url,
-					"raw-output":  line,
-				}
-				log.Printf("[DEBUG] Created result object: %+v", result)
-				allResults = append(allResults, result)
-
-				// Update target URLs with results
-				var updateField string
-				switch strings.TrimSuffix(filepath.Base(template), ".yaml") {
-				case "deprecated-tls":
-					updateField = "has_deprecated_tls"
-				case "expired-ssl":
-					updateField = "has_expired_ssl"
-				case "mismatched-ssl-certificate":
-					updateField = "has_mismatched_ssl"
-				case "revoked-ssl-certificate":
-					updateField = "has_revoked_ssl"
-				case "self-signed-ssl":
-					updateField = "has_self_signed_ssl"
-				case "untrusted-root-certificate":
-					updateField = "has_untrusted_root_ssl"
-				case "wildcard-tls":
-					updateField = "has_wildcard_tls"
-				default:
-					log.Printf("[WARN] Unknown template type: %s", template)
-					continue
-				}
-				log.Printf("[DEBUG] Using update field: %s for template: %s", updateField, template)
-
-				// Check if target URL exists before update
-				var existingID string
-				checkQuery := `SELECT id FROM target_urls WHERE url = $1`
-				err := dbPool.QueryRow(context.Background(), checkQuery, url).Scan(&existingID)
-				if err == pgx.ErrNoRows {
-					log.Printf("[WARN] Target URL %s not found in database", url)
-					continue
-				} else if err != nil {
-					log.Printf("[ERROR] Error checking target URL existence: %v", err)
-					continue
-				}
-				log.Printf("[DEBUG] Found existing target URL with ID: %s", existingID)
-
-				// Update the target URL
-				query := fmt.Sprintf(`UPDATE target_urls SET %s = true, updated_at = NOW() WHERE url = $1`, updateField)
-				log.Printf("[DEBUG] Executing update query: %s with URL: %s", query, url)
-				commandTag, err := dbPool.Exec(context.Background(), query, url)
-				if err != nil {
-					log.Printf("[ERROR] Failed to update target URL %s for template %s: %v", url, template, err)
-				} else {
-					rowsAffected := commandTag.RowsAffected()
-					log.Printf("[INFO] Successfully updated target URL %s with %s = true (Rows affected: %d)", url, updateField, rowsAffected)
-				}
-			} else {
-				log.Printf("[DEBUG] Line did not match any finding criteria")
-			}
-		}
-
-		if !vulnerabilitiesFound {
-			log.Printf("[INFO] No findings with template %s", template)
-		} else {
-			log.Printf("[INFO] Completed scan with template %s - findings were found", template)
-		}
-	}
-
-	// Convert results to JSON string
-	resultsJSON, err := json.Marshal(allResults)
+	err = cmd.Run()
 	if err != nil {
-		log.Printf("[ERROR] Failed to marshal results to JSON: %v", err)
-		resultsJSON = []byte("[]")
+		log.Printf("[ERROR] Nuclei scan failed: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", stderr.String(), cmd.String(), time.Since(startTime).String())
+		return
 	}
-	log.Printf("[DEBUG] Final results JSON: %s", string(resultsJSON))
+
+	// Read the JSON output file
+	outputCmd := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-nuclei-1",
+		"cat", "/output.json",
+	)
+	output, err := outputCmd.Output()
+	if err != nil {
+		log.Printf("[ERROR] Failed to read output file: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Process each finding and update the database
+	findings := strings.Split(string(output), "\n")
+	for _, finding := range findings {
+		if finding == "" {
+			continue
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(finding), &result); err != nil {
+			log.Printf("[ERROR] Failed to parse JSON finding: %v", err)
+			continue
+		}
+
+		templateID, ok := result["template-id"].(string)
+		if !ok {
+			continue
+		}
+
+		matchedURL, ok := result["matched-at"].(string)
+		if !ok {
+			continue
+		}
+
+		// Convert matched-at (host:port) to URL
+		url := "https://" + strings.TrimSuffix(matchedURL, ":443")
+
+		// Update the target_urls table based on the template
+		var updateField string
+		switch templateID {
+		case "deprecated-tls":
+			updateField = "has_deprecated_tls"
+		case "expired-ssl":
+			updateField = "has_expired_ssl"
+		case "mismatched-ssl-certificate":
+			updateField = "has_mismatched_ssl"
+		case "revoked-ssl-certificate":
+			updateField = "has_revoked_ssl"
+		case "self-signed-ssl":
+			updateField = "has_self_signed_ssl"
+		case "untrusted-root-certificate":
+			updateField = "has_untrusted_root_ssl"
+		default:
+			continue
+		}
+
+		query := fmt.Sprintf("UPDATE target_urls SET %s = true WHERE url = $1 AND scope_target_id = $2", updateField)
+		commandTag, err := dbPool.Exec(context.Background(), query, url, scopeTargetID)
+		if err != nil {
+			log.Printf("[ERROR] Failed to update target URL %s for template %s: %v", url, templateID, err)
+		} else {
+			rowsAffected := commandTag.RowsAffected()
+			log.Printf("[INFO] Successfully updated target URL %s with %s = true (Rows affected: %d)", url, updateField, rowsAffected)
+		}
+	}
 
 	// Update scan status
 	updateNucleiSSLScanStatus(
 		scanID,
 		"success",
-		string(resultsJSON),
-		allStderr.String(),
-		strings.Join(allCommands, "\n"),
+		string(output),
+		stderr.String(),
+		cmd.String(),
 		time.Since(startTime).String(),
 	)
+
+	// Clean up the output file
+	exec.Command("docker", "exec", "ars0n-framework-v2-nuclei-1", "rm", "/output.json").Run()
 
 	log.Printf("[INFO] SSL scan completed for scan ID: %s", scanID)
 }

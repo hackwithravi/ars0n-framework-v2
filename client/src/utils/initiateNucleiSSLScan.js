@@ -17,7 +17,7 @@ const initiateNucleiSSLScan = async (
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          fqdn: activeTarget.scope_target.replace('*.', ''),
+          scope_target_id: activeTarget.id,
         }),
       }
     );

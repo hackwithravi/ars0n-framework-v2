@@ -14,7 +14,7 @@ const SSLMetadataModal = ({
       size="xl"
     >
       <Modal.Header closeButton>
-        <Modal.Title className="text-danger">SSL Metadata Results</Modal.Title>
+        <Modal.Title className="text-danger">Metadata Results</Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Table striped bordered hover>
@@ -33,7 +33,6 @@ const SSLMetadataModal = ({
               if (url.has_revoked_ssl) sslIssues.push('Revoked SSL');
               if (url.has_self_signed_ssl) sslIssues.push('Self-Signed SSL');
               if (url.has_untrusted_root_ssl) sslIssues.push('Untrusted Root');
-              if (url.has_wildcard_tls) sslIssues.push('Wildcard TLS');
 
               return (
                 <tr key={url.id}>
