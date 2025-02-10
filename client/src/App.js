@@ -1954,10 +1954,10 @@ function App() {
                             variant="outline-danger" 
                             className="flex-fill"
                             onClick={startNucleiSSLScan}
-                            disabled={isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending"}
+                            disabled={isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running"}
                           >
                             <div className="btn-content">
-                              {isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" ? (
+                              {isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running" ? (
                                 <div className="spinner"></div>
                               ) : 'Gather Metadata'}
                             </div>

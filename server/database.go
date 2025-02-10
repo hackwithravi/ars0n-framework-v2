@@ -289,7 +289,8 @@ func createTables() {
 			has_revoked_ssl BOOLEAN DEFAULT false,
 			has_self_signed_ssl BOOLEAN DEFAULT false,
 			has_untrusted_root_ssl BOOLEAN DEFAULT false,
-			has_wildcard_tls BOOLEAN DEFAULT false
+			has_wildcard_tls BOOLEAN DEFAULT false,
+			findings_json JSONB
 		);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,

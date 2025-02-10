@@ -4862,8 +4862,9 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 		_, err = dbPool.Exec(context.Background(),
 			`INSERT INTO target_urls (
                 url, status_code, title, web_server, technologies, 
-                content_length, scope_target_id, newly_discovered, no_longer_live
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, false)`,
+                content_length, scope_target_id, newly_discovered, no_longer_live,
+                findings_json
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8)`,
 			url,
 			httpxData["status_code"],
 			httpxData["title"],
@@ -4871,7 +4872,7 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			technologies,
 			httpxData["content_length"],
 			scopeTargetID,
-		)
+			httpxData["findings_json"])
 		if err != nil {
 			return fmt.Errorf("failed to insert target URL: %v", err)
 		}
@@ -4890,8 +4891,9 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 				content_length = $5,
 				no_longer_live = false,
 				newly_discovered = true,
-				updated_at = NOW()
-			WHERE id = $6`
+				updated_at = NOW(),
+				findings_json = $6
+			WHERE id = $7`
 		} else {
 			// If URL was already live, just update its data and set newly_discovered to false
 			updateQuery = `UPDATE target_urls SET 
@@ -4902,8 +4904,9 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 				content_length = $5,
 				no_longer_live = false,
 				newly_discovered = false,
-				updated_at = NOW()
-			WHERE id = $6`
+				updated_at = NOW(),
+				findings_json = $6
+			WHERE id = $7`
 		}
 
 		_, err = dbPool.Exec(context.Background(),
@@ -4913,8 +4916,8 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			httpxData["webserver"],
 			technologies,
 			httpxData["content_length"],
-			existingID,
-		)
+			scopeTargetID,
+			httpxData["findings_json"])
 		if err != nil {
 			return fmt.Errorf("failed to update target URL: %v", err)
 		}
@@ -4993,7 +4996,7 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			   scope_target_id, created_at, updated_at,
 			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
 			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
-			   has_wildcard_tls
+			   has_wildcard_tls, findings_json
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
@@ -5030,6 +5033,7 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.HasSelfSignedSSL,
 			&targetURL.HasUntrustedRootSSL,
 			&targetURL.HasWildcardTLS,
+			&targetURL.FindingsJSON,
 		)
 		if err != nil {
 			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
@@ -5058,6 +5062,7 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			HasSelfSignedSSL:    targetURL.HasSelfSignedSSL,
 			HasUntrustedRootSSL: targetURL.HasUntrustedRootSSL,
 			HasWildcardTLS:      targetURL.HasWildcardTLS,
+			FindingsJSON:        targetURL.FindingsJSON,
 		}
 		targetURLs = append(targetURLs, response)
 	}
@@ -5286,10 +5291,10 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 		}
 	}
 
-	// Update scan status
+	// Update scan status to indicate SSL scan is complete but tech scan is pending
 	updateNucleiSSLScanStatus(
 		scanID,
-		"success",
+		"running",
 		string(output),
 		stderr.String(),
 		cmd.String(),
@@ -5299,7 +5304,137 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	// Clean up the output file
 	exec.Command("docker", "exec", "ars0n-framework-v2-nuclei-1", "rm", "/output.json").Run()
 
-	log.Printf("[INFO] SSL scan completed for scan ID: %s", scanID)
+	log.Printf("[INFO] SSL scan completed for scan ID: %s, starting tech scan", scanID)
+
+	// Run the HTTP/technologies scan
+	if err := executeAndParseNucleiTechScan(urls, scopeTargetID); err != nil {
+		log.Printf("[ERROR] Failed to run HTTP/technologies scan: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", string(output), fmt.Sprintf("Tech scan failed: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Update final scan status after both scans complete successfully
+	updateNucleiSSLScanStatus(
+		scanID,
+		"success",
+		string(output),
+		stderr.String(),
+		cmd.String(),
+		time.Since(startTime).String(),
+	)
+
+	log.Printf("[INFO] Both SSL and tech scans completed successfully for scan ID: %s", scanID)
+}
+
+func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
+	log.Printf("[INFO] Starting Nuclei HTTP/technologies scan")
+	startTime := time.Now()
+
+	// Create a temporary file for URLs
+	tempFile, err := os.CreateTemp("", "urls-*.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Write URLs to temp file
+	if err := os.WriteFile(tempFile.Name(), []byte(strings.Join(urls, "\n")), 0644); err != nil {
+		return fmt.Errorf("failed to write URLs to temp file: %v", err)
+	}
+
+	// Copy the URLs file into the container
+	copyCmd := exec.Command(
+		"docker", "cp",
+		tempFile.Name(),
+		fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
+	)
+	if err := copyCmd.Run(); err != nil {
+		return fmt.Errorf("failed to copy URLs file to container: %v", err)
+	}
+
+	// Run HTTP/technologies templates
+	cmd := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-nuclei-1",
+		"nuclei",
+		"-t", "/root/nuclei-templates/http/technologies/",
+		"-list", "/urls.txt",
+		"-j",
+		"-o", "/tech-output.json",
+	)
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	if err != nil {
+		return fmt.Errorf("nuclei tech scan failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Read the JSON output file
+	outputCmd := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-nuclei-1",
+		"cat", "/tech-output.json",
+	)
+	output, err := outputCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to read output file: %v", err)
+	}
+
+	// Process findings and update the database
+	findings := strings.Split(string(output), "\n")
+	urlFindings := make(map[string][]interface{})
+
+	for _, finding := range findings {
+		if finding == "" {
+			continue
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(finding), &result); err != nil {
+			log.Printf("[ERROR] Failed to parse JSON finding: %v", err)
+			continue
+		}
+
+		matchedURL, ok := result["matched-at"].(string)
+		if !ok {
+			continue
+		}
+
+		// Convert matched-at to proper URL
+		if strings.Contains(matchedURL, "://") {
+			// Already a full URL
+			matchedURL = normalizeURL(matchedURL)
+		} else if strings.Contains(matchedURL, ":") {
+			// hostname:port format
+			host := strings.Split(matchedURL, ":")[0]
+			matchedURL = normalizeURL("https://" + host)
+		} else {
+			// Just a hostname
+			matchedURL = normalizeURL("https://" + matchedURL)
+		}
+
+		// Add finding to the URL's findings array
+		urlFindings[matchedURL] = append(urlFindings[matchedURL], result)
+	}
+
+	// Update each URL with its findings
+	for url, findings := range urlFindings {
+		query := `UPDATE target_urls SET findings_json = $1 WHERE url = $2 AND scope_target_id = $3`
+		commandTag, err := dbPool.Exec(context.Background(), query, findings, url, scopeTargetID)
+		if err != nil {
+			log.Printf("[ERROR] Failed to update findings for URL %s: %v", url, err)
+			continue
+		}
+		rowsAffected := commandTag.RowsAffected()
+		log.Printf("[INFO] Updated findings for URL %s (Rows affected: %d)", url, rowsAffected)
+	}
+
+	// Clean up the output file
+	exec.Command("docker", "exec", "ars0n-framework-v2-nuclei-1", "rm", "/tech-output.json").Run()
+
+	log.Printf("[INFO] HTTP/technologies scan completed in %s", time.Since(startTime))
+	return nil
 }
 
 func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {

@@ -24,7 +24,7 @@ const monitorNucleiSSLScanStatus = async (
       setMostRecentNucleiSSLScan(mostRecentScan);
       setMostRecentNucleiSSLScanStatus(mostRecentScan.status);
 
-      if (mostRecentScan.status === 'pending') {
+      if (mostRecentScan.status === 'pending' || mostRecentScan.status === 'running') {
         setTimeout(() => {
           monitorNucleiSSLScanStatus(
             activeTarget,

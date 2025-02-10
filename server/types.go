@@ -301,6 +301,7 @@ type TargetURL struct {
 	HasSelfSignedSSL    bool           `json:"has_self_signed_ssl"`
 	HasUntrustedRootSSL bool           `json:"has_untrusted_root_ssl"`
 	HasWildcardTLS      bool           `json:"has_wildcard_tls"`
+	FindingsJSON        []interface{}  `json:"findings_json"`
 }
 
 type ASNResponse struct {
@@ -323,24 +324,25 @@ type CertEntry struct {
 }
 
 type TargetURLResponse struct {
-	ID                  string    `json:"id"`
-	URL                 string    `json:"url"`
-	Screenshot          string    `json:"screenshot,omitempty"`
-	StatusCode          int       `json:"status_code"`
-	Title               string    `json:"title,omitempty"`
-	WebServer           string    `json:"web_server,omitempty"`
-	Technologies        []string  `json:"technologies"`
-	ContentLength       int       `json:"content_length"`
-	NewlyDiscovered     bool      `json:"newly_discovered"`
-	NoLongerLive        bool      `json:"no_longer_live"`
-	ScopeTargetID       string    `json:"scope_target_id"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	HasDeprecatedTLS    bool      `json:"has_deprecated_tls"`
-	HasExpiredSSL       bool      `json:"has_expired_ssl"`
-	HasMismatchedSSL    bool      `json:"has_mismatched_ssl"`
-	HasRevokedSSL       bool      `json:"has_revoked_ssl"`
-	HasSelfSignedSSL    bool      `json:"has_self_signed_ssl"`
-	HasUntrustedRootSSL bool      `json:"has_untrusted_root_ssl"`
-	HasWildcardTLS      bool      `json:"has_wildcard_tls"`
+	ID                  string        `json:"id"`
+	URL                 string        `json:"url"`
+	Screenshot          string        `json:"screenshot,omitempty"`
+	StatusCode          int           `json:"status_code"`
+	Title               string        `json:"title,omitempty"`
+	WebServer           string        `json:"web_server,omitempty"`
+	Technologies        []string      `json:"technologies"`
+	ContentLength       int           `json:"content_length"`
+	NewlyDiscovered     bool          `json:"newly_discovered"`
+	NoLongerLive        bool          `json:"no_longer_live"`
+	ScopeTargetID       string        `json:"scope_target_id"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
+	HasDeprecatedTLS    bool          `json:"has_deprecated_tls"`
+	HasExpiredSSL       bool          `json:"has_expired_ssl"`
+	HasMismatchedSSL    bool          `json:"has_mismatched_ssl"`
+	HasRevokedSSL       bool          `json:"has_revoked_ssl"`
+	HasSelfSignedSSL    bool          `json:"has_self_signed_ssl"`
+	HasUntrustedRootSSL bool          `json:"has_untrusted_root_ssl"`
+	HasWildcardTLS      bool          `json:"has_wildcard_tls"`
+	FindingsJSON        []interface{} `json:"findings_json"`
 }
