@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"crypto/tls"
 	"encoding/base64"
 
 	"github.com/google/uuid"
@@ -4996,7 +4997,7 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			   scope_target_id, created_at, updated_at,
 			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
 			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
-			   has_wildcard_tls, findings_json
+			   has_wildcard_tls, findings_json, http_response, http_response_headers
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
@@ -5034,6 +5035,8 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.HasUntrustedRootSSL,
 			&targetURL.HasWildcardTLS,
 			&targetURL.FindingsJSON,
+			&targetURL.HTTPResponse,
+			&targetURL.HTTPResponseHeaders,
 		)
 		if err != nil {
 			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
@@ -5063,6 +5066,8 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			HasUntrustedRootSSL: targetURL.HasUntrustedRootSSL,
 			HasWildcardTLS:      targetURL.HasWildcardTLS,
 			FindingsJSON:        targetURL.FindingsJSON,
+			HTTPResponse:        nullStringToString(targetURL.HTTPResponse),
+			HTTPResponseHeaders: targetURL.HTTPResponseHeaders,
 		}
 		targetURLs = append(targetURLs, response)
 	}
@@ -5195,7 +5200,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	copyCmd := exec.Command(
 		"docker", "cp",
 		tempFile.Name(),
-		fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
+		"ars0n-framework-v2-nuclei-1:/urls.txt",
 	)
 	if err := copyCmd.Run(); err != nil {
 		log.Printf("[ERROR] Failed to copy URLs file to container: %v", err)
@@ -5330,6 +5335,18 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 	log.Printf("[INFO] Starting Nuclei HTTP/technologies scan")
 	startTime := time.Now()
 
+	// Create an HTTP client with reasonable timeouts and TLS config
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+		},
+	}
+
 	// Create a temporary file for URLs
 	tempFile, err := os.CreateTemp("", "urls-*.txt")
 	if err != nil {
@@ -5346,7 +5363,7 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 	copyCmd := exec.Command(
 		"docker", "cp",
 		tempFile.Name(),
-		fmt.Sprintf("ars0n-framework-v2-nuclei-1:/urls.txt"),
+		"ars0n-framework-v2-nuclei-1:/urls.txt",
 	)
 	if err := copyCmd.Run(); err != nil {
 		return fmt.Errorf("failed to copy URLs file to container: %v", err)
@@ -5418,16 +5435,64 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		urlFindings[matchedURL] = append(urlFindings[matchedURL], result)
 	}
 
-	// Update each URL with its findings
+	// Make HTTP requests and update each URL with its findings and response data
 	for url, findings := range urlFindings {
-		query := `UPDATE target_urls SET findings_json = $1 WHERE url = $2 AND scope_target_id = $3`
-		commandTag, err := dbPool.Exec(context.Background(), query, findings, url, scopeTargetID)
+		// Make HTTP request
+		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			log.Printf("[ERROR] Failed to update findings for URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to create request for URL %s: %v", url, err)
+			continue
+		}
+
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[ERROR] Failed to make request to URL %s: %v", url, err)
+			continue
+		}
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			log.Printf("[ERROR] Failed to read response body from URL %s: %v", url, err)
+			continue
+		}
+
+		// Convert headers to map for JSON storage
+		headers := make(map[string]interface{})
+		for k, v := range resp.Header {
+			if len(v) == 1 {
+				headers[k] = v[0]
+			} else {
+				headers[k] = v
+			}
+		}
+
+		// Update database with findings and response data
+		query := `
+			UPDATE target_urls 
+			SET 
+				findings_json = $1,
+				http_response = $2,
+				http_response_headers = $3
+			WHERE url = $4 AND scope_target_id = $5`
+
+		commandTag, err := dbPool.Exec(context.Background(),
+			query,
+			findings,
+			string(body),
+			headers,
+			url,
+			scopeTargetID,
+		)
+		if err != nil {
+			log.Printf("[ERROR] Failed to update findings and response data for URL %s: %v", url, err)
 			continue
 		}
 		rowsAffected := commandTag.RowsAffected()
-		log.Printf("[INFO] Updated findings for URL %s (Rows affected: %d)", url, rowsAffected)
+		log.Printf("[INFO] Updated findings and response data for URL %s (Rows affected: %d)", url, rowsAffected)
 	}
 
 	// Clean up the output file

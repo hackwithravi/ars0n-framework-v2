@@ -1542,6 +1542,35 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Brute-Force</h4>
+                <Accordion data-bs-theme="dark" className="mb-3">
+                  <Accordion.Item eventKey="0">
+                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
+                    <Accordion.Body className="bg-dark">
+                      <ListGroup as="ul" variant="flush">
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic one{' '}
+                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                          <ListGroup as="ul" variant="flush" className="mt-2">
+                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
+                              Minor Topic one{' '}
+                              <a href="https://example.com/minor-topic1" className="text-danger text-decoration-none">
+                                Learn More
+                              </a>
+                            </ListGroup.Item>
+                          </ListGroup>
+                        </ListGroup.Item>
+                        <ListGroup.Item as="li" className="bg-dark text-white">
+                          Major learning topic two{' '}
+                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
+                            Learn More
+                          </a>
+                        </ListGroup.Item>
+                      </ListGroup>
+                    </Accordion.Body>
+                  </Accordion.Item>
+                </Accordion>
                 <Row className="justify-content-between mb-4">
                   {[
                     { 
@@ -1928,50 +1957,55 @@ function App() {
                             We now have a list of unique subdomains pointing to live web servers. The next step is to take screenshots of each web application and gather data to identify the target that will give us the greatest ROI as a bug bounty hunter. Focus on signs that the target may have vulnerabilities, may not be maintained, or offers a large attack surface.
                           </Card.Text>
                         </div>
-                        <div className="d-flex justify-content-between w-100 mt-3 gap-2">
-                        <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
-                          <Button 
-                            variant="outline-danger" 
-                            className="flex-fill"
-                            onClick={startNucleiScreenshotScan}
-                            disabled={isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending"}
-                          >
-                            <div className="btn-content">
-                              {isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending" ? (
-                                <div className="spinner"></div>
-                              ) : 'Take Screenshots'}
-                            </div>
-                          </Button>
-                          <Button 
-                            variant="outline-danger" 
-                            className="flex-fill"
-                            onClick={handleOpenScreenshotResultsModal}
-                            disabled={!mostRecentNucleiScreenshotScan || mostRecentNucleiScreenshotScan.status !== "success"}
-                          >
-                            View Screenshots
-                          </Button>
-                          <Button 
-                            variant="outline-danger" 
-                            className="flex-fill"
-                            onClick={startNucleiSSLScan}
-                            disabled={isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running"}
-                          >
-                            <div className="btn-content">
-                              {isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running" ? (
-                                <div className="spinner"></div>
-                              ) : 'Gather Metadata'}
-                            </div>
-                          </Button>
-                          <Button 
-                            variant="outline-danger" 
-                            className="flex-fill"
-                            onClick={handleOpenSSLMetadataModal}
-                            disabled={!mostRecentNucleiSSLScan || mostRecentNucleiSSLScan.status !== "success"}
-                          >
-                            View Metadata
-                          </Button>
-                          <Button variant="outline-danger" className="flex-fill">Generate Report</Button>
-                          <Button variant="outline-danger" className="flex-fill">Select Target URL</Button>
+                        <div className="d-flex flex-column gap-3 w-100 mt-3">
+                          <div className="d-flex justify-content-between gap-2">
+                            <Button variant="outline-danger" className="flex-fill" onClick={handleOpenReconResultsModal}>Recon Results</Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={startNucleiScreenshotScan}
+                              disabled={isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending"}
+                            >
+                              <div className="btn-content">
+                                {isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Take Screenshots'}
+                              </div>
+                            </Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={handleOpenScreenshotResultsModal}
+                              disabled={!mostRecentNucleiScreenshotScan || mostRecentNucleiScreenshotScan.status !== "success"}
+                            >
+                              View Screenshots
+                            </Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={startNucleiSSLScan}
+                              disabled={isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running"}
+                            >
+                              <div className="btn-content">
+                                {isNucleiSSLScanning || mostRecentNucleiSSLScanStatus === "pending" || mostRecentNucleiSSLScanStatus === "running" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Gather Metadata'}
+                              </div>
+                            </Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={handleOpenSSLMetadataModal}
+                              disabled={!mostRecentNucleiSSLScan || mostRecentNucleiSSLScan.status !== "success"}
+                            >
+                              View Metadata
+                            </Button>
+                            <Button variant="outline-danger" className="flex-fill">Calculate ROI</Button>
+                            <Button variant="outline-danger" className="flex-fill">ROI Report</Button>
+                          </div>
+                          <div className="w-100">
+                            <Button variant="danger" className="w-100">Select Target URL</Button>
+                          </div>
                         </div>
                       </Card.Body>
                     </Card>

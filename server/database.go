@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 )
 
 func createTables() {
@@ -290,16 +291,41 @@ func createTables() {
 			has_self_signed_ssl BOOLEAN DEFAULT false,
 			has_untrusted_root_ssl BOOLEAN DEFAULT false,
 			has_wildcard_tls BOOLEAN DEFAULT false,
-			findings_json JSONB
+			findings_json JSONB,
+			http_response TEXT,
+			http_response_headers JSONB
 		);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
+
+		// Add migration queries for new columns
+		`DO $$ 
+		BEGIN 
+			BEGIN
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS http_response TEXT;
+			EXCEPTION WHEN duplicate_column THEN 
+				RAISE NOTICE 'Column http_response already exists in target_urls.';
+			END;
+		END $$;`,
+
+		`DO $$ 
+		BEGIN 
+			BEGIN
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS http_response_headers JSONB;
+			EXCEPTION WHEN duplicate_column THEN 
+				RAISE NOTICE 'Column http_response_headers already exists in target_urls.';
+			END;
+		END $$;`,
 	}
 
 	for _, query := range queries {
 		_, err := dbPool.Exec(context.Background(), query)
 		if err != nil {
-			log.Fatalf("[ERROR] Failed to execute query: %s, error: %v", query, err)
+			log.Printf("[ERROR] Failed to execute query: %s, error: %v", query, err)
+			// Don't fatally exit on migration errors
+			if !strings.Contains(query, "ALTER TABLE") {
+				log.Fatalf("[ERROR] Failed to execute query: %s, error: %v", query, err)
+			}
 		}
 	}
 
