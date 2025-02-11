@@ -293,7 +293,15 @@ func createTables() {
 			has_wildcard_tls BOOLEAN DEFAULT false,
 			findings_json JSONB,
 			http_response TEXT,
-			http_response_headers JSONB
+			http_response_headers JSONB,
+			dns_a_records TEXT[],
+			dns_aaaa_records TEXT[],
+			dns_cname_records TEXT[],
+			dns_mx_records TEXT[],
+			dns_txt_records TEXT[],
+			dns_ns_records TEXT[],
+			dns_ptr_records TEXT[],
+			dns_srv_records TEXT[]
 		);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
@@ -314,6 +322,23 @@ func createTables() {
 				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS http_response_headers JSONB;
 			EXCEPTION WHEN duplicate_column THEN 
 				RAISE NOTICE 'Column http_response_headers already exists in target_urls.';
+			END;
+		END $$;`,
+
+		// Add migration queries for new DNS columns
+		`DO $$ 
+		BEGIN 
+			BEGIN
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_a_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_aaaa_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_cname_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_mx_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_txt_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_ns_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_ptr_records TEXT[];
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS dns_srv_records TEXT[];
+			EXCEPTION WHEN duplicate_column THEN 
+				RAISE NOTICE 'DNS columns already exist in target_urls.';
 			END;
 		END $$;`,
 	}

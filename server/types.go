@@ -304,6 +304,14 @@ type TargetURL struct {
 	FindingsJSON        []interface{}          `json:"findings_json"`
 	HTTPResponse        sql.NullString         `json:"http_response,omitempty"`
 	HTTPResponseHeaders map[string]interface{} `json:"http_response_headers,omitempty"`
+	DNSARecords         []string               `json:"dns_a_records,omitempty"`
+	DNSAAAARecords      []string               `json:"dns_aaaa_records,omitempty"`
+	DNSCNAMERecords     []string               `json:"dns_cname_records,omitempty"`
+	DNSMXRecords        []string               `json:"dns_mx_records,omitempty"`
+	DNSTXTRecords       []string               `json:"dns_txt_records,omitempty"`
+	DNSNSRecords        []string               `json:"dns_ns_records,omitempty"`
+	DNSPTRRecords       []string               `json:"dns_ptr_records,omitempty"`
+	DNSSRVRecords       []string               `json:"dns_srv_records,omitempty"`
 }
 
 type ASNResponse struct {
@@ -349,4 +357,12 @@ type TargetURLResponse struct {
 	FindingsJSON        []interface{}          `json:"findings_json"`
 	HTTPResponse        string                 `json:"http_response,omitempty"`
 	HTTPResponseHeaders map[string]interface{} `json:"http_response_headers,omitempty"`
+	DNSARecords         []string               `json:"dns_a_records,omitempty"`
+	DNSAAAARecords      []string               `json:"dns_aaaa_records,omitempty"`
+	DNSCNAMERecords     []string               `json:"dns_cname_records,omitempty"`
+	DNSMXRecords        []string               `json:"dns_mx_records,omitempty"`
+	DNSTXTRecords       []string               `json:"dns_txt_records,omitempty"`
+	DNSNSRecords        []string               `json:"dns_ns_records,omitempty"`
+	DNSPTRRecords       []string               `json:"dns_ptr_records,omitempty"`
+	DNSSRVRecords       []string               `json:"dns_srv_records,omitempty"`
 }

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	url2 "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 	"crypto/tls"
 	"encoding/base64"
+	"net"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -2826,7 +2828,7 @@ func consolidateSubdomains(scopeTargetID string) ([]string, error) {
 				if gauResult.URL == "" {
 					continue
 				}
-				parsedURL, err := url.Parse(gauResult.URL)
+				parsedURL, err := url2.Parse(gauResult.URL)
 				if err != nil {
 					log.Printf("[ERROR] Failed to parse URL %s: %v", gauResult.URL, err)
 					continue
@@ -4842,13 +4844,14 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 
 	// Convert technologies interface{} to string array
 	var technologies []string
-	if techInterface, ok := httpxData["technologies"].([]interface{}); ok {
+	if techInterface, ok := httpxData["tech"].([]interface{}); ok {
 		for _, tech := range techInterface {
 			if techStr, ok := tech.(string); ok {
 				technologies = append(technologies, techStr)
 			}
 		}
 	}
+	log.Printf("[DEBUG] Found technologies for %s: %v", url, technologies)
 
 	// Check if target URL already exists
 	var existingID string
@@ -4862,10 +4865,10 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 		// Insert new target URL with newly_discovered set to true
 		_, err = dbPool.Exec(context.Background(),
 			`INSERT INTO target_urls (
-                url, status_code, title, web_server, technologies, 
-                content_length, scope_target_id, newly_discovered, no_longer_live,
-                findings_json
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8)`,
+				url, status_code, title, web_server, technologies, 
+				content_length, scope_target_id, newly_discovered, no_longer_live,
+				findings_json
+			) VALUES ($1, $2, $3, $4, $5::text[], $6, $7, true, false, $8::jsonb)`,
 			url,
 			httpxData["status_code"],
 			httpxData["title"],
@@ -4873,7 +4876,7 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			technologies,
 			httpxData["content_length"],
 			scopeTargetID,
-			httpxData["findings_json"])
+			"[]")
 		if err != nil {
 			return fmt.Errorf("failed to insert target URL: %v", err)
 		}
@@ -4888,12 +4891,12 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 				status_code = $1,
 				title = $2,
 				web_server = $3,
-				technologies = $4,
+				technologies = $4::text[],
 				content_length = $5,
 				no_longer_live = false,
 				newly_discovered = true,
 				updated_at = NOW(),
-				findings_json = $6
+					findings_json = $6::jsonb
 			WHERE id = $7`
 		} else {
 			// If URL was already live, just update its data and set newly_discovered to false
@@ -4901,12 +4904,12 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 				status_code = $1,
 				title = $2,
 				web_server = $3,
-				technologies = $4,
+				technologies = $4::text[],
 				content_length = $5,
 				no_longer_live = false,
 				newly_discovered = false,
 				updated_at = NOW(),
-				findings_json = $6
+				findings_json = $6::jsonb
 			WHERE id = $7`
 		}
 
@@ -4917,8 +4920,8 @@ func updateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			httpxData["webserver"],
 			technologies,
 			httpxData["content_length"],
-			scopeTargetID,
-			httpxData["findings_json"])
+			"[]",
+			existingID)
 		if err != nil {
 			return fmt.Errorf("failed to update target URL: %v", err)
 		}
@@ -4997,7 +5000,9 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			   scope_target_id, created_at, updated_at,
 			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
 			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
-			   has_wildcard_tls, findings_json, http_response, http_response_headers
+			   has_wildcard_tls, findings_json, http_response, http_response_headers,
+			   dns_a_records, dns_aaaa_records, dns_cname_records, dns_mx_records,
+			   dns_txt_records, dns_ns_records, dns_ptr_records, dns_srv_records
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
@@ -5037,6 +5042,14 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.FindingsJSON,
 			&targetURL.HTTPResponse,
 			&targetURL.HTTPResponseHeaders,
+			&targetURL.DNSARecords,
+			&targetURL.DNSAAAARecords,
+			&targetURL.DNSCNAMERecords,
+			&targetURL.DNSMXRecords,
+			&targetURL.DNSTXTRecords,
+			&targetURL.DNSNSRecords,
+			&targetURL.DNSPTRRecords,
+			&targetURL.DNSSRVRecords,
 		)
 		if err != nil {
 			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
@@ -5068,6 +5081,14 @@ func getTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			FindingsJSON:        targetURL.FindingsJSON,
 			HTTPResponse:        nullStringToString(targetURL.HTTPResponse),
 			HTTPResponseHeaders: targetURL.HTTPResponseHeaders,
+			DNSARecords:         targetURL.DNSARecords,
+			DNSAAAARecords:      targetURL.DNSAAAARecords,
+			DNSCNAMERecords:     targetURL.DNSCNAMERecords,
+			DNSMXRecords:        targetURL.DNSMXRecords,
+			DNSTXTRecords:       targetURL.DNSTXTRecords,
+			DNSNSRecords:        targetURL.DNSNSRecords,
+			DNSPTRRecords:       targetURL.DNSPTRRecords,
+			DNSSRVRecords:       targetURL.DNSSRVRecords,
 		}
 		targetURLs = append(targetURLs, response)
 	}
@@ -5437,6 +5458,16 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 
 	// Make HTTP requests and update each URL with its findings and response data
 	for url, findings := range urlFindings {
+		// Parse URL to get hostname for DNS lookups
+		parsedURL, err := url2.Parse(url)
+		if err != nil {
+			log.Printf("[ERROR] Failed to parse URL %s: %v", url, err)
+			continue
+		}
+
+		// Perform DNS lookups
+		dnsResults := performDNSLookups(parsedURL.Hostname())
+
 		// Make HTTP request
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -5460,30 +5491,60 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			continue
 		}
 
+		// Sanitize the response body
+		sanitizedBody := sanitizeResponse(body)
+
 		// Convert headers to map for JSON storage
 		headers := make(map[string]interface{})
 		for k, v := range resp.Header {
 			if len(v) == 1 {
-				headers[k] = v[0]
+				headers[k] = sanitizeResponse([]byte(v[0]))
 			} else {
-				headers[k] = v
+				sanitizedValues := make([]string, len(v))
+				for i, val := range v {
+					sanitizedValues[i] = sanitizeResponse([]byte(val))
+				}
+				headers[k] = sanitizedValues
 			}
 		}
 
-		// Update database with findings and response data
+		// Update database with findings, response data, and DNS records
 		query := `
 			UPDATE target_urls 
 			SET 
-				findings_json = $1,
+				findings_json = $1::jsonb,
 				http_response = $2,
-				http_response_headers = $3
-			WHERE url = $4 AND scope_target_id = $5`
+				http_response_headers = $3,
+				dns_a_records = $4,
+				dns_aaaa_records = $5,
+				dns_cname_records = $6,
+				dns_mx_records = $7,
+				dns_txt_records = $8,
+				dns_ns_records = $9,
+				dns_ptr_records = $10,
+				dns_srv_records = $11
+			WHERE url = $12 AND scope_target_id = $13`
+
+		// Convert findings to proper JSON
+		findingsJSON, err := json.Marshal(findings)
+		if err != nil {
+			log.Printf("[ERROR] Failed to marshal findings for URL %s: %v", url, err)
+			continue
+		}
 
 		commandTag, err := dbPool.Exec(context.Background(),
 			query,
-			findings,
-			string(body),
+			findingsJSON,
+			sanitizedBody,
 			headers,
+			dnsResults.ARecords,
+			dnsResults.AAAARecords,
+			dnsResults.CNAMERecords,
+			dnsResults.MXRecords,
+			dnsResults.TXTRecords,
+			dnsResults.NSRecords,
+			dnsResults.PTRRecords,
+			dnsResults.SRVRecords,
 			url,
 			scopeTargetID,
 		)
@@ -5500,6 +5561,83 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 
 	log.Printf("[INFO] HTTP/technologies scan completed in %s", time.Since(startTime))
 	return nil
+}
+
+type DNSResults struct {
+	ARecords     []string
+	AAAARecords  []string
+	CNAMERecords []string
+	MXRecords    []string
+	TXTRecords   []string
+	NSRecords    []string
+	PTRRecords   []string
+	SRVRecords   []string
+}
+
+func performDNSLookups(hostname string) DNSResults {
+	var results DNSResults
+
+	// Perform A record lookup
+	if ips, err := net.LookupIP(hostname); err == nil {
+		for _, ip := range ips {
+			if ipv4 := ip.To4(); ipv4 != nil {
+				results.ARecords = append(results.ARecords, ipv4.String())
+			} else {
+				results.AAAARecords = append(results.AAAARecords, ip.String())
+			}
+		}
+	}
+
+	// Perform CNAME lookup using a more reliable method
+	if _, err := net.DefaultResolver.LookupHost(context.Background(), hostname); err == nil {
+		// First try to get the CNAME record
+		if cname, err := net.DefaultResolver.LookupCNAME(context.Background(), hostname); err == nil && cname != "" {
+			cname = strings.TrimSuffix(cname, ".")
+			if cname != hostname && !strings.HasSuffix(hostname, cname) {
+				results.CNAMERecords = append(results.CNAMERecords, fmt.Sprintf("%s -> %s", cname, hostname))
+			}
+		}
+	}
+
+	// Perform MX lookup
+	if mxRecords, err := net.LookupMX(hostname); err == nil {
+		for _, mx := range mxRecords {
+			results.MXRecords = append(results.MXRecords, fmt.Sprintf("%s %d", strings.TrimSuffix(mx.Host, "."), mx.Pref))
+		}
+	}
+
+	// Perform TXT lookup
+	if txtRecords, err := net.LookupTXT(hostname); err == nil {
+		results.TXTRecords = append(results.TXTRecords, txtRecords...)
+	}
+
+	// Perform NS lookup
+	if nsRecords, err := net.LookupNS(hostname); err == nil {
+		for _, ns := range nsRecords {
+			results.NSRecords = append(results.NSRecords, strings.TrimSuffix(ns.Host, "."))
+		}
+	}
+
+	// Perform PTR lookup (reverse DNS)
+	if names, err := net.LookupAddr(hostname); err == nil {
+		for _, name := range names {
+			results.PTRRecords = append(results.PTRRecords, strings.TrimSuffix(name, "."))
+		}
+	}
+
+	// Perform SRV lookup for common services
+	services := []string{"_http._tcp", "_https._tcp", "_ldap._tcp", "_kerberos._tcp"}
+	for _, service := range services {
+		if _, addrs, err := net.LookupSRV("", "", service+"."+hostname); err == nil {
+			for _, addr := range addrs {
+				results.SRVRecords = append(results.SRVRecords,
+					fmt.Sprintf("%s.%s:%d %d %d",
+						service, hostname, addr.Port, addr.Priority, addr.Weight))
+			}
+		}
+	}
+
+	return results
 }
 
 func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {
@@ -5616,4 +5754,23 @@ func getNucleiSSLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scans)
+}
+
+// Add this function before executeAndParseNucleiTechScan
+func sanitizeResponse(input []byte) string {
+	// Remove null bytes
+	sanitized := bytes.ReplaceAll(input, []byte{0}, []byte{})
+
+	// Convert to string and handle any invalid UTF-8
+	str := string(sanitized)
+
+	// Replace any other problematic characters
+	str = strings.Map(func(r rune) rune {
+		if r < 32 && r != '\n' && r != '\r' && r != '\t' {
+			return -1 // Drop the character
+		}
+		return r
+	}, str)
+
+	return str
 }

@@ -6,6 +6,8 @@ const SSLMetadataModal = ({
   handleCloseSSLMetadataModal,
   targetURLs
 }) => {
+  console.log('SSLMetadataModal targetURLs:', targetURLs);
+
   const getSeverityBadgeColor = (severity) => {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -104,6 +106,106 @@ const SSLMetadataModal = ({
                         <p className="mb-1"><strong>Title:</strong> {url.title || 'N/A'}</p>
                         <p className="mb-1"><strong>Web Server:</strong> {url.web_server || 'N/A'}</p>
                         <p className="mb-1"><strong>Content Length:</strong> {url.content_length}</p>
+                        {url.technologies && url.technologies.length > 0 && (
+                          <p className="mb-1">
+                            <strong>Technologies:</strong>{' '}
+                            {url.technologies.map((tech, index) => (
+                              <Badge 
+                                key={index} 
+                                bg="secondary" 
+                                className="me-1"
+                                style={{ fontSize: '0.8em' }}
+                              >
+                                {tech}
+                              </Badge>
+                            ))}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mb-4">
+                      <h6 className="text-danger mb-3">DNS Information</h6>
+                      <div className="ms-3">
+                        <Accordion>
+                          {[
+                            { 
+                              title: 'A Records', 
+                              records: url.dns_a_records,
+                              description: 'Maps hostnames to IPv4 addresses'
+                            },
+                            { 
+                              title: 'AAAA Records', 
+                              records: url.dns_aaaa_records,
+                              description: 'Maps hostnames to IPv6 addresses'
+                            },
+                            { 
+                              title: 'CNAME Records', 
+                              records: url.dns_cname_records,
+                              description: 'Canonical name records - Maps one domain name (alias) to another (canonical name)'
+                            },
+                            { 
+                              title: 'MX Records', 
+                              records: url.dns_mx_records,
+                              description: 'Mail exchange records - Specifies mail servers responsible for receiving email'
+                            },
+                            { 
+                              title: 'TXT Records', 
+                              records: url.dns_txt_records,
+                              description: 'Text records - Holds human/machine-readable text data, often used for domain verification'
+                            },
+                            { 
+                              title: 'NS Records', 
+                              records: url.dns_ns_records,
+                              description: 'Nameserver records - Delegates a DNS zone to authoritative nameservers'
+                            },
+                            { 
+                              title: 'PTR Records', 
+                              records: url.dns_ptr_records,
+                              description: 'Pointer records - Maps IP addresses to hostnames (reverse DNS)'
+                            },
+                            { 
+                              title: 'SRV Records', 
+                              records: url.dns_srv_records,
+                              description: 'Service records - Specifies location of servers for specific services'
+                            }
+                          ].map((recordType, index) => {
+                            console.log(`${recordType.title}:`, recordType.records);
+                            return (recordType.records && recordType.records.length > 0 && (
+                              <Accordion.Item key={index} eventKey={index.toString()}>
+                                <Accordion.Header>
+                                  <div>
+                                    <span className="text-white">
+                                      {recordType.title} ({recordType.records.length})
+                                    </span>
+                                    <br/>
+                                    <small className="text-muted">{recordType.description}</small>
+                                  </div>
+                                </Accordion.Header>
+                                <Accordion.Body>
+                                  <div className="bg-dark p-3 rounded font-monospace" style={{ fontSize: '0.85em' }}>
+                                    {recordType.records.map((record, recordIndex) => {
+                                      let displayRecord = record;
+                                      if (recordType.title === 'MX Records') {
+                                        const [host, priority] = record.split(' ');
+                                        displayRecord = `Priority: ${priority} | Mail Server: ${host}`;
+                                      } else if (recordType.title === 'SRV Records') {
+                                        const [service, port, priority, weight] = record.split(' ');
+                                        displayRecord = `Service: ${service} | Port: ${port} | Priority: ${priority} | Weight: ${weight}`;
+                                      } else if (recordType.title === 'CNAME Records') {
+                                        displayRecord = record;
+                                      }
+                                      return (
+                                        <div key={recordIndex} className="mb-1">
+                                          {displayRecord}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </Accordion.Body>
+                              </Accordion.Item>
+                            ))
+                          })}
+                        </Accordion>
                       </div>
                     </div>
                     {(url.http_response || url.http_response_headers) && (

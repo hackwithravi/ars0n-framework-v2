@@ -8,6 +8,10 @@ function SelectActiveScopeTargetModal({
   handleActiveSelect,
   handleDelete,
 }) {
+  const sortedTargets = [...scopeTargets].sort((a, b) => 
+    new Date(a.created_at) - new Date(b.created_at)
+  );
+
   return (
     <Modal data-bs-theme="dark" show={showActiveModal} onHide={handleActiveModalClose} centered>
       <Modal.Header closeButton>
@@ -15,7 +19,7 @@ function SelectActiveScopeTargetModal({
       </Modal.Header>
       <Modal.Body>
         <ListGroup>
-          {scopeTargets.map((target) => (
+          {sortedTargets.map((target) => (
             <ListGroup.Item
               key={target.id}
               action
