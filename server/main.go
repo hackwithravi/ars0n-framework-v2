@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	url2 "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2828,7 +2827,7 @@ func consolidateSubdomains(scopeTargetID string) ([]string, error) {
 				if gauResult.URL == "" {
 					continue
 				}
-				parsedURL, err := url2.Parse(gauResult.URL)
+				parsedURL, err := url.Parse(gauResult.URL)
 				if err != nil {
 					log.Printf("[ERROR] Failed to parse URL %s: %v", gauResult.URL, err)
 					continue
@@ -5457,11 +5456,11 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 	}
 
 	// Make HTTP requests and update each URL with its findings and response data
-	for url, findings := range urlFindings {
+	for urlStr, findings := range urlFindings {
 		// Parse URL to get hostname for DNS lookups
-		parsedURL, err := url2.Parse(url)
+		parsedURL, err := url.Parse(urlStr)
 		if err != nil {
-			log.Printf("[ERROR] Failed to parse URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to parse URL %s: %v", urlStr, err)
 			continue
 		}
 
@@ -5469,9 +5468,9 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		dnsResults := performDNSLookups(parsedURL.Hostname())
 
 		// Make HTTP request
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequest("GET", urlStr, nil)
 		if err != nil {
-			log.Printf("[ERROR] Failed to create request for URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to create request for URL %s: %v", urlStr, err)
 			continue
 		}
 
@@ -5479,7 +5478,7 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("[ERROR] Failed to make request to URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to make request to URL %s: %v", urlStr, err)
 			continue
 		}
 
@@ -5487,7 +5486,7 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			log.Printf("[ERROR] Failed to read response body from URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to read response body from URL %s: %v", urlStr, err)
 			continue
 		}
 
@@ -5528,7 +5527,7 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		// Convert findings to proper JSON
 		findingsJSON, err := json.Marshal(findings)
 		if err != nil {
-			log.Printf("[ERROR] Failed to marshal findings for URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to marshal findings for URL %s: %v", urlStr, err)
 			continue
 		}
 
@@ -5545,15 +5544,15 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			dnsResults.NSRecords,
 			dnsResults.PTRRecords,
 			dnsResults.SRVRecords,
-			url,
+			urlStr,
 			scopeTargetID,
 		)
 		if err != nil {
-			log.Printf("[ERROR] Failed to update findings and response data for URL %s: %v", url, err)
+			log.Printf("[ERROR] Failed to update findings and response data for URL %s: %v", urlStr, err)
 			continue
 		}
 		rowsAffected := commandTag.RowsAffected()
-		log.Printf("[INFO] Updated findings and response data for URL %s (Rows affected: %d)", url, rowsAffected)
+		log.Printf("[INFO] Updated findings and response data for URL %s (Rows affected: %d)", urlStr, rowsAffected)
 	}
 
 	// Clean up the output file

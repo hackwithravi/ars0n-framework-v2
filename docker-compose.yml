@@ -2,6 +2,7 @@ version: '3'
 
 services:
   api:
+    container_name: ars0n-framework-v2-api-1
     build: ./server
     ports:
       - "8080:8080"
@@ -21,6 +22,7 @@ services:
     restart: unless-stopped
 
   db:
+    container_name: ars0n-framework-v2-db-1
     image: postgres:latest
     environment:
       POSTGRES_USER: postgres
@@ -36,6 +38,7 @@ services:
     restart: unless-stopped
 
   client:
+    container_name: ars0n-framework-v2-client-1
     build: ./client
     ports:
       - "3000:3000"
@@ -44,6 +47,7 @@ services:
     restart: unless-stopped
 
   assetfinder:
+    container_name: ars0n-framework-v2-assetfinder-1
     build: ./docker/assetfinder
     depends_on:
       - api
@@ -51,6 +55,7 @@ services:
     restart: "no"
 
   sublist3r:
+    container_name: ars0n-framework-v2-sublist3r-1
     build: ./docker/sublist3r
     depends_on:
       - api
@@ -58,6 +63,7 @@ services:
     restart: "no"
 
   ctl:
+    container_name: ars0n-framework-v2-ctl-1
     build: ./docker/ctl
     depends_on:
       - api
@@ -65,6 +71,7 @@ services:
     restart: "no"
 
   subfinder:
+    container_name: ars0n-framework-v2-subfinder-1
     build: ./docker/subfinder
     depends_on:
       - api
@@ -72,6 +79,7 @@ services:
     restart: "no"
 
   shuffledns:
+    container_name: ars0n-framework-v2-shuffledns-1
     build: ./docker/shuffledns
     volumes:
       - ./docker/shuffledns/wordlists:/app/wordlists
@@ -81,6 +89,7 @@ services:
     restart: "no"
 
   cewl:
+    container_name: ars0n-framework-v2-cewl-1
     build: ./docker/cewl
     depends_on:
       - api
@@ -88,6 +97,7 @@ services:
     restart: "no"
 
   gospider:
+    container_name: ars0n-framework-v2-gospider-1
     build:
       context: .
       dockerfile: docker/gospider/Dockerfile
@@ -97,6 +107,7 @@ services:
     restart: "no"
 
   subdomainizer:
+    container_name: ars0n-framework-v2-subdomainizer-1
     build:
       context: .
       dockerfile: docker/subdomainizer/Dockerfile
@@ -106,6 +117,7 @@ services:
     restart: "no"
 
   nuclei:
+    container_name: ars0n-framework-v2-nuclei-1
     build: ./docker/nuclei
     depends_on:
       - api
@@ -113,6 +125,18 @@ services:
       - temp_data:/tmp
     entrypoint: ["sleep", "infinity"]
     shm_size: '2g'
+    restart: "no"
+
+  katana:
+    container_name: ars0n-framework-v2-katana-1
+    build:
+      context: ./docker/katana
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    volumes:
+      - temp_data:/tmp
+    entrypoint: ["sleep", "infinity"]
     restart: "no"
 
 volumes:
