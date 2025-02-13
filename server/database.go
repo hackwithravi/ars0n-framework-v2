@@ -270,20 +270,6 @@ func createTables() {
 			created_at TIMESTAMP DEFAULT NOW(),
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS katana_scans (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			scan_id UUID NOT NULL UNIQUE,
-			domain TEXT NOT NULL,
-			status VARCHAR(50) NOT NULL,
-			result TEXT,
-			error TEXT,
-			stdout TEXT,
-			stderr TEXT,
-			command TEXT,
-			execution_time TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
-		);`,
 		`CREATE TABLE IF NOT EXISTS target_urls (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			url TEXT NOT NULL UNIQUE,
