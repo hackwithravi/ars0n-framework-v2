@@ -5531,8 +5531,7 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			continue
 		}
 
-		commandTag, err := dbPool.Exec(context.Background(),
-			query,
+		_, err = dbPool.Exec(context.Background(), query,
 			findingsJSON,
 			sanitizedBody,
 			headers,
@@ -5548,105 +5547,111 @@ func executeAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			scopeTargetID,
 		)
 		if err != nil {
-			log.Printf("[ERROR] Failed to update findings and response data for URL %s: %v", urlStr, err)
+			log.Printf("[ERROR] Failed to update target URL %s with findings and response data: %v", urlStr, err)
 			continue
 		}
-		rowsAffected := commandTag.RowsAffected()
-		log.Printf("[INFO] Updated findings and response data for URL %s (Rows affected: %d)", urlStr, rowsAffected)
 	}
+
+	// Run Katana crawler after HTTP response capture
+	katanaScanID := uuid.New().String()
+	insertQuery := `INSERT INTO katana_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err = dbPool.Exec(context.Background(), insertQuery, katanaScanID, domain, "pending", scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create Katana scan record: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create Katana scan record: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Create a temporary file for URLs
+	katanaTempFile, err := os.CreateTemp("", "katana-urls-*.txt")
+	if err != nil {
+		log.Printf("[ERROR] Failed to create temp file for Katana scan: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp file for Katana: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+	defer os.Remove(katanaTempFile.Name())
+
+	// Write URLs to temp file
+	if err := os.WriteFile(katanaTempFile.Name(), []byte(strings.Join(urls, "\n")), 0644); err != nil {
+		log.Printf("[ERROR] Failed to write URLs to Katana temp file: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write URLs to Katana temp file: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Copy the URLs file into the Katana container
+	copyCmd := exec.Command(
+		"docker", "cp",
+		katanaTempFile.Name(),
+		"ars0n-framework-v2-katana-1:/urls.txt",
+	)
+	if err := copyCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to copy URLs file to Katana container: %v", err)
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to copy URLs file to Katana container: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Run Katana crawler
+	katanaCmd := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-katana-1",
+		"katana",
+		"-list", "/urls.txt",
+		"-jc",            // JSON output with colors disabled
+		"-silent",        // Silent mode
+		"-timeout", "30", // 30 second timeout
+		"-retry", "2", // 2 retries
+		"-o", "/katana-output.json",
+	)
+	log.Printf("[INFO] Executing Katana command: %s", katanaCmd.String())
+
+	var katanaStderr bytes.Buffer
+	katanaCmd.Stderr = &katanaStderr
+
+	if err := katanaCmd.Run(); err != nil {
+		log.Printf("[ERROR] Katana scan failed: %v", err)
+		updateKatanaScanStatus(katanaScanID, "error", "", katanaStderr.String(), katanaCmd.String(), time.Since(startTime).String())
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Katana scan failed: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Read the Katana output file
+	katanaOutput, err := exec.Command(
+		"docker", "exec", "ars0n-framework-v2-katana-1",
+		"cat", "/katana-output.json",
+	).Output()
+	if err != nil {
+		log.Printf("[ERROR] Failed to read Katana output file: %v", err)
+		updateKatanaScanStatus(katanaScanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), katanaCmd.String(), time.Since(startTime).String())
+		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read Katana output file: %v", err), cmd.String(), time.Since(startTime).String())
+		return
+	}
+
+	// Update Katana scan status
+	updateKatanaScanStatus(katanaScanID, "success", string(katanaOutput), katanaStderr.String(), katanaCmd.String(), time.Since(startTime).String())
 
 	// Clean up the output file
-	exec.Command("docker", "exec", "ars0n-framework-v2-nuclei-1", "rm", "/tech-output.json").Run()
+	exec.Command("docker", "exec", "ars0n-framework-v2-katana-1", "rm", "/katana-output.json").Run()
 
-	log.Printf("[INFO] HTTP/technologies scan completed in %s", time.Since(startTime))
-	return nil
+	// Update final scan status after both scans complete successfully
+	updateNucleiSSLScanStatus(
+		scanID,
+		"success",
+		string(output),
+		stderr.String(),
+		cmd.String(),
+		time.Since(startTime).String(),
+	)
+
+	log.Printf("[INFO] Both SSL and Katana scans completed successfully for scan ID: %s", scanID)
 }
 
-type DNSResults struct {
-	ARecords     []string
-	AAAARecords  []string
-	CNAMERecords []string
-	MXRecords    []string
-	TXTRecords   []string
-	NSRecords    []string
-	PTRRecords   []string
-	SRVRecords   []string
-}
-
-func performDNSLookups(hostname string) DNSResults {
-	var results DNSResults
-
-	// Perform A record lookup
-	if ips, err := net.LookupIP(hostname); err == nil {
-		for _, ip := range ips {
-			if ipv4 := ip.To4(); ipv4 != nil {
-				results.ARecords = append(results.ARecords, ipv4.String())
-			} else {
-				results.AAAARecords = append(results.AAAARecords, ip.String())
-			}
-		}
-	}
-
-	// Perform CNAME lookup using a more reliable method
-	if _, err := net.DefaultResolver.LookupHost(context.Background(), hostname); err == nil {
-		// First try to get the CNAME record
-		if cname, err := net.DefaultResolver.LookupCNAME(context.Background(), hostname); err == nil && cname != "" {
-			cname = strings.TrimSuffix(cname, ".")
-			if cname != hostname && !strings.HasSuffix(hostname, cname) {
-				results.CNAMERecords = append(results.CNAMERecords, fmt.Sprintf("%s -> %s", cname, hostname))
-			}
-		}
-	}
-
-	// Perform MX lookup
-	if mxRecords, err := net.LookupMX(hostname); err == nil {
-		for _, mx := range mxRecords {
-			results.MXRecords = append(results.MXRecords, fmt.Sprintf("%s %d", strings.TrimSuffix(mx.Host, "."), mx.Pref))
-		}
-	}
-
-	// Perform TXT lookup
-	if txtRecords, err := net.LookupTXT(hostname); err == nil {
-		results.TXTRecords = append(results.TXTRecords, txtRecords...)
-	}
-
-	// Perform NS lookup
-	if nsRecords, err := net.LookupNS(hostname); err == nil {
-		for _, ns := range nsRecords {
-			results.NSRecords = append(results.NSRecords, strings.TrimSuffix(ns.Host, "."))
-		}
-	}
-
-	// Perform PTR lookup (reverse DNS)
-	if names, err := net.LookupAddr(hostname); err == nil {
-		for _, name := range names {
-			results.PTRRecords = append(results.PTRRecords, strings.TrimSuffix(name, "."))
-		}
-	}
-
-	// Perform SRV lookup for common services
-	services := []string{"_http._tcp", "_https._tcp", "_ldap._tcp", "_kerberos._tcp"}
-	for _, service := range services {
-		if _, addrs, err := net.LookupSRV("", "", service+"."+hostname); err == nil {
-			for _, addr := range addrs {
-				results.SRVRecords = append(results.SRVRecords,
-					fmt.Sprintf("%s.%s:%d %d %d",
-						service, hostname, addr.Port, addr.Priority, addr.Weight))
-			}
-		}
-	}
-
-	return results
-}
-
-func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {
-	log.Printf("[INFO] Updating Nuclei SSL scan status for %s to %s", scanID, status)
-	query := `UPDATE nuclei_ssl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+func updateKatanaScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Katana scan status for %s to %s", scanID, status)
+	query := `UPDATE katana_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
 	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to update Nuclei SSL scan status for %s: %v", scanID, err)
+		log.Printf("[ERROR] Failed to update Katana scan status for %s: %v", scanID, err)
 	} else {
-		log.Printf("[INFO] Successfully updated Nuclei SSL scan status for %s", scanID)
+		log.Printf("[INFO] Successfully updated Katana scan status for %s", scanID)
 	}
 }
 
@@ -5772,4 +5777,92 @@ func sanitizeResponse(input []byte) string {
 	}, str)
 
 	return str
+}
+
+type DNSResults struct {
+	ARecords     []string
+	AAAARecords  []string
+	CNAMERecords []string
+	MXRecords    []string
+	TXTRecords   []string
+	NSRecords    []string
+	PTRRecords   []string
+	SRVRecords   []string
+}
+
+func performDNSLookups(hostname string) DNSResults {
+	var results DNSResults
+
+	// Perform A record lookup
+	if ips, err := net.LookupIP(hostname); err == nil {
+		for _, ip := range ips {
+			if ipv4 := ip.To4(); ipv4 != nil {
+				results.ARecords = append(results.ARecords, ipv4.String())
+			} else {
+				results.AAAARecords = append(results.AAAARecords, ip.String())
+			}
+		}
+	}
+
+	// Perform CNAME lookup using a more reliable method
+	if _, err := net.DefaultResolver.LookupHost(context.Background(), hostname); err == nil {
+		// First try to get the CNAME record
+		if cname, err := net.DefaultResolver.LookupCNAME(context.Background(), hostname); err == nil && cname != "" {
+			cname = strings.TrimSuffix(cname, ".")
+			if cname != hostname && !strings.HasSuffix(hostname, cname) {
+				results.CNAMERecords = append(results.CNAMERecords, fmt.Sprintf("%s -> %s", cname, hostname))
+			}
+		}
+	}
+
+	// Perform MX lookup
+	if mxRecords, err := net.LookupMX(hostname); err == nil {
+		for _, mx := range mxRecords {
+			results.MXRecords = append(results.MXRecords, fmt.Sprintf("%s %d", strings.TrimSuffix(mx.Host, "."), mx.Pref))
+		}
+	}
+
+	// Perform TXT lookup
+	if txtRecords, err := net.LookupTXT(hostname); err == nil {
+		results.TXTRecords = append(results.TXTRecords, txtRecords...)
+	}
+
+	// Perform NS lookup
+	if nsRecords, err := net.LookupNS(hostname); err == nil {
+		for _, ns := range nsRecords {
+			results.NSRecords = append(results.NSRecords, strings.TrimSuffix(ns.Host, "."))
+		}
+	}
+
+	// Perform PTR lookup (reverse DNS)
+	if names, err := net.LookupAddr(hostname); err == nil {
+		for _, name := range names {
+			results.PTRRecords = append(results.PTRRecords, strings.TrimSuffix(name, "."))
+		}
+	}
+
+	// Perform SRV lookup for common services
+	services := []string{"_http._tcp", "_https._tcp", "_ldap._tcp", "_kerberos._tcp"}
+	for _, service := range services {
+		if _, addrs, err := net.LookupSRV("", "", service+"."+hostname); err == nil {
+			for _, addr := range addrs {
+				results.SRVRecords = append(results.SRVRecords,
+					fmt.Sprintf("%s.%s:%d %d %d",
+						service, hostname, addr.Port, addr.Priority, addr.Weight))
+			}
+		}
+	}
+
+	return results
+}
+
+func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {
+	log.Printf("[INFO] Updating Nuclei SSL scan status for %s to %s", scanID, status)
+	query := `UPDATE nuclei_ssl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update Nuclei SSL scan status for %s: %v", scanID, err)
+	} else {
+		log.Printf("[INFO] Successfully updated Nuclei SSL scan status for %s", scanID)
+	}
 }
