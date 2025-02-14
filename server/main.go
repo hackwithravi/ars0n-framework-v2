@@ -119,9 +119,9 @@ func main() {
 	r.HandleFunc("/nuclei-screenshot/run", runNucleiScreenshotScan).Methods("POST", "OPTIONS")
 	r.HandleFunc("/nuclei-screenshot/{scan_id}", getNucleiScreenshotScanStatus).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/scope-targets/{id}/target-urls", getTargetURLsForScopeTarget).Methods("GET", "OPTIONS")
-	r.HandleFunc("/nuclei-ssl/run", runNucleiSSLScan).Methods("POST", "OPTIONS")
-	r.HandleFunc("/nuclei-ssl/{scan_id}", getNucleiSSLScanStatus).Methods("GET", "OPTIONS")
-	r.HandleFunc("/scopetarget/{id}/scans/nuclei-ssl", getNucleiSSLScansForScopeTarget).Methods("GET", "OPTIONS")
+	r.HandleFunc("/metadata/run", runMetaDataScan).Methods("POST", "OPTIONS")
+	r.HandleFunc("/metadata/{scan_id}", getMetaDataScanStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/scopetarget/{id}/scans/metadata", getMetaDataScansForScopeTarget).Methods("GET", "OPTIONS")
 
 	log.Println("API server started on :8080")
 	http.ListenAndServe(":8080", r)
@@ -1011,15 +1011,29 @@ func runHttpxScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get subdomains from latest amass scan
-	subdomains, err := getLatestAmassSubdomains(scopeTargetID)
+	// Get consolidated subdomains
+	query = `SELECT subdomain FROM consolidated_subdomains WHERE scope_target_id = $1`
+	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to get subdomains: %v", err)
+		log.Printf("[ERROR] Failed to get consolidated subdomains: %v", err)
+		http.Error(w, "Failed to get consolidated subdomains.", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var domainsToScan []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
+			continue
+		}
+		domainsToScan = append(domainsToScan, subdomain)
 	}
 
-	// If no subdomains found, use the main domain
-	domainsToScan := subdomains
+	// If no consolidated subdomains found, use the base domain
 	if len(domainsToScan) == 0 {
+		log.Printf("[INFO] No consolidated subdomains found, using base domain: %s", domain)
 		domainsToScan = []string{domain}
 	}
 
@@ -1032,59 +1046,162 @@ func runHttpxScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go executeAndParseHttpxScan(scanID, domain, domainsToScan)
+	go executeAndParseHttpxScan(scanID, domain)
 
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
-func executeAndParseHttpxScan(scanID, domain string, domainsToScan []string) {
+func executeAndParseHttpxScan(scanID, domain string) {
 	log.Printf("[INFO] Starting httpx scan for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
-	mountDir := "/tmp/httpx-mounts"
-	if err := os.MkdirAll(mountDir, 0755); err != nil {
-		log.Printf("[ERROR] Failed to create mount directory: %v", err)
-		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create mount directory: %v", err), "", time.Since(startTime).String())
-		return
-	}
+	// Check if container exists and is running
+	containerName := "ars0n-framework-v2-httpx-1"
 
-	mountPath := filepath.Join(mountDir, "domains.txt")
-	domainsFile, err := os.Create(mountPath)
+	// First check if container exists at all
+	psCmd := exec.Command("docker", "ps", "-a", "-q", "-f", fmt.Sprintf("name=%s", containerName))
+	var (
+		output []byte
+		err    error
+	)
+	output, err = psCmd.Output()
 	if err != nil {
-		log.Printf("[ERROR] Failed to create domains file: %v", err)
-		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create domains file: %v", err), "", time.Since(startTime).String())
+		log.Printf("[ERROR] Failed to check container existence: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to check container existence: %v", err), "", time.Since(startTime).String())
 		return
 	}
-	defer os.Remove(mountPath)
 
-	for _, subdomain := range domainsToScan {
-		if _, err := domainsFile.WriteString(subdomain + "\n"); err != nil {
-			log.Printf("[ERROR] Failed to write subdomain %s to file: %v", subdomain, err)
-			updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write to domains file: %v", err), "", time.Since(startTime).String())
+	if len(output) == 0 {
+		log.Printf("[ERROR] Container %s does not exist", containerName)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Container %s does not exist. Please ensure the container is created.", containerName), "", time.Since(startTime).String())
+		return
+	}
+
+	// Now check if it's running
+	checkCmd := exec.Command("docker", "ps", "-q", "-f", fmt.Sprintf("name=%s", containerName))
+	output, err = checkCmd.Output()
+	if err != nil || len(output) == 0 {
+		log.Printf("[INFO] Container %s exists but is not running, attempting to start", containerName)
+		// Try to start the container
+		startCmd := exec.Command("docker", "start", containerName)
+		var startStderr bytes.Buffer
+		startCmd.Stderr = &startStderr
+		if err := startCmd.Run(); err != nil {
+			log.Printf("[ERROR] Failed to start container: %v", err)
+			log.Printf("[ERROR] Start stderr: %s", startStderr.String())
+			updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to start container: %v\nStderr: %s", err, startStderr.String()), "", time.Since(startTime).String())
 			return
 		}
+		log.Printf("[INFO] Successfully started container %s", containerName)
 	}
-	domainsFile.Close()
 
-	if err := os.Chmod(mountPath, 0644); err != nil {
-		log.Printf("[ERROR] Failed to set file permissions: %v", err)
-		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to set file permissions: %v", err), "", time.Since(startTime).String())
+	// Rest of the function remains the same...
+
+	// Get scope target ID
+	var scopeTargetID string
+	err = dbPool.QueryRow(context.Background(),
+		`SELECT scope_target_id FROM httpx_scans WHERE scan_id = $1`,
+		scanID).Scan(&scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get scope target ID: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
 		return
 	}
 
-	// Verify file contents
-	content, err := os.ReadFile(mountPath)
+	// Get consolidated subdomains
+	rows, err := dbPool.Query(context.Background(),
+		`SELECT subdomain FROM consolidated_subdomains WHERE scope_target_id = $1`,
+		scopeTargetID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to read domains file: %v", err)
-	} else {
-		log.Printf("[DEBUG] Domains file contents:\n%s", string(content))
+		log.Printf("[ERROR] Failed to get consolidated subdomains: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get consolidated subdomains: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer rows.Close()
+
+	var domainsToScan []string
+	for rows.Next() {
+		var subdomain string
+		if err := rows.Scan(&subdomain); err != nil {
+			log.Printf("[ERROR] Failed to scan subdomain row: %v", err)
+			continue
+		}
+		domainsToScan = append(domainsToScan, subdomain)
 	}
 
-	// Run httpx with correct flags
+	// If no consolidated subdomains found, use the base domain
+	if len(domainsToScan) == 0 {
+		log.Printf("[INFO] No consolidated subdomains found, using base domain: %s", domain)
+		domainsToScan = []string{domain}
+	}
+
+	log.Printf("[INFO] Found %d domains to scan", len(domainsToScan))
+
+	// Create temporary directory for domains file
+	tempDir := "/tmp/httpx-temp"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Printf("[ERROR] Failed to create temp directory: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp directory: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write domains to file
+	domainsFile := filepath.Join(tempDir, "domains.txt")
+	if err := os.WriteFile(domainsFile, []byte(strings.Join(domainsToScan, "\n")), 0644); err != nil {
+		log.Printf("[ERROR] Failed to write domains file: %v", err)
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write domains file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	// Create directory in container
+	mkdirCmd := exec.Command(
+		"docker", "exec",
+		containerName,
+		"sh", "-c", "mkdir -p /tmp && chmod 777 /tmp",
+	)
+	var mkdirStderr bytes.Buffer
+	mkdirCmd.Stderr = &mkdirStderr
+	if err := mkdirCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to create directory in container: %v", err)
+		log.Printf("[ERROR] mkdir stderr: %s", mkdirStderr.String())
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create directory in container: %v\nStderr: %s", err, mkdirStderr.String()), "", time.Since(startTime).String())
+		return
+	}
+
+	// Copy file to container
+	copyCmd := exec.Command("docker", "cp", domainsFile, fmt.Sprintf("%s:/tmp/domains.txt", containerName))
+	var copyStderr bytes.Buffer
+	copyCmd.Stderr = &copyStderr
+	if err := copyCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to copy domains file to container: %v", err)
+		log.Printf("[ERROR] Copy stderr: %s", copyStderr.String())
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to copy domains file to container: %v\nStderr: %s", err, copyStderr.String()), "", time.Since(startTime).String())
+		return
+	}
+
+	// Verify file exists in container
+	lsCmd := exec.Command(
+		"docker", "exec",
+		containerName,
+		"ls", "-l", "/tmp/domains.txt",
+	)
+	var lsStderr bytes.Buffer
+	lsCmd.Stderr = &lsStderr
+	if err := lsCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to verify file in container: %v", err)
+		log.Printf("[ERROR] ls stderr: %s", lsStderr.String())
+		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to verify file in container: %v\nStderr: %s", err, lsStderr.String()), "", time.Since(startTime).String())
+		return
+	}
+
+	// Run httpx in container
 	cmd := exec.Command(
+		"docker", "exec",
+		containerName,
 		"httpx",
-		"-l", mountPath,
+		"-l", "/tmp/domains.txt",
 		"-json",
 		"-status-code",
 		"-title",
@@ -1114,15 +1231,20 @@ func executeAndParseHttpxScan(scanID, domain string, domainsToScan []string) {
 		return
 	}
 
-	// Read the output file
-	outputContent, err := os.ReadFile("/tmp/httpx-output.json")
+	// Read the output file from container
+	outputCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-httpx-1",
+		"cat", "/tmp/httpx-output.json",
+	)
+	output, err = outputCmd.Output()
 	if err != nil {
 		log.Printf("[ERROR] Failed to read output file: %v", err)
 		updateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), cmd.String(), execTime)
 		return
 	}
 
-	result := string(outputContent)
+	result := string(output)
 	log.Printf("[INFO] httpx scan completed in %s for domain %s", execTime, domain)
 	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
 	if stderr.Len() > 0 {
@@ -1134,17 +1256,6 @@ func executeAndParseHttpxScan(scanID, domain string, domainsToScan []string) {
 		updateHttpxScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
 	} else {
 		log.Printf("[DEBUG] httpx output: %s", result)
-
-		// Get scope target ID
-		var scopeTargetID string
-		err := dbPool.QueryRow(context.Background(),
-			`SELECT scope_target_id FROM httpx_scans WHERE scan_id = $1`,
-			scanID).Scan(&scopeTargetID)
-		if err != nil {
-			log.Printf("[ERROR] Failed to get scope target ID: %v", err)
-			updateHttpxScanStatus(scanID, "error", result, fmt.Sprintf("Failed to get scope target ID: %v", err), cmd.String(), execTime)
-			return
-		}
 
 		// Process results and update target URLs
 		var liveURLs []string
@@ -1175,6 +1286,9 @@ func executeAndParseHttpxScan(scanID, domain string, domainsToScan []string) {
 
 		updateHttpxScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
 	}
+
+	// Cleanup
+	exec.Command("docker", "exec", "ars0n-framework-v2-httpx-1", "rm", "-f", "/tmp/domains.txt", "/tmp/httpx-output.json").Run()
 
 	log.Printf("[INFO] Scan status updated for scan %s", scanID)
 }
@@ -5109,7 +5223,7 @@ func normalizeURL(url string) string {
 	return url
 }
 
-func runNucleiSSLScan(w http.ResponseWriter, r *http.Request) {
+func runMetaDataScan(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ScopeTargetID string `json:"scope_target_id" binding:"required"`
 	}
@@ -5130,7 +5244,7 @@ func runNucleiSSLScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scanID := uuid.New().String()
-	insertQuery := `INSERT INTO nuclei_ssl_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	insertQuery := `INSERT INTO metadata_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
 	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", payload.ScopeTargetID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create scan record: %v", err)
@@ -5138,24 +5252,24 @@ func runNucleiSSLScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go executeAndParseNucleiSSLScan(scanID, domain)
+	go executeAndParseMetaDataScan(scanID, domain)
 
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
-func executeAndParseNucleiSSLScan(scanID, domain string) {
+func executeAndParseMetaDataScan(scanID, domain string) {
 	log.Printf("[INFO] Starting Nuclei SSL scan for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
 	// Get scope target ID and latest httpx results
 	var scopeTargetID string
 	err := dbPool.QueryRow(context.Background(),
-		`SELECT scope_target_id FROM nuclei_ssl_scans WHERE scan_id = $1`,
+		`SELECT scope_target_id FROM metadata_scans WHERE scan_id = $1`,
 		scanID).Scan(&scopeTargetID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get scope target ID: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
 		return
 	}
 
@@ -5170,7 +5284,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 		LIMIT 1`, scopeTargetID).Scan(&httpxResults)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get httpx results: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get httpx results: %v", err), "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get httpx results: %v", err), "", time.Since(startTime).String())
 		return
 	}
 
@@ -5178,7 +5292,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	tempFile, err := os.CreateTemp("", "urls-*.txt")
 	if err != nil {
 		log.Printf("[ERROR] Failed to create temp file for scan ID %s: %v", scanID, err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp file: %v", err), "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp file: %v", err), "", time.Since(startTime).String())
 		return
 	}
 	defer os.Remove(tempFile.Name())
@@ -5204,14 +5318,14 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 
 	if len(urls) == 0 {
 		log.Printf("[ERROR] No valid HTTPS URLs found in httpx results for scan ID: %s", scanID)
-		updateNucleiSSLScanStatus(scanID, "error", "", "No valid HTTPS URLs found in httpx results", "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", "No valid HTTPS URLs found in httpx results", "", time.Since(startTime).String())
 		return
 	}
 
 	// Write URLs to temp file
 	if err := os.WriteFile(tempFile.Name(), []byte(strings.Join(urls, "\n")), 0644); err != nil {
 		log.Printf("[ERROR] Failed to write URLs to temp file for scan ID %s: %v", scanID, err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write URLs to temp file: %v", err), "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write URLs to temp file: %v", err), "", time.Since(startTime).String())
 		return
 	}
 	log.Printf("[INFO] Successfully wrote %d URLs to temp file for scan ID: %s", len(urls), scanID)
@@ -5224,7 +5338,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	)
 	if err := copyCmd.Run(); err != nil {
 		log.Printf("[ERROR] Failed to copy URLs file to container: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to copy URLs file: %v", err), "", time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to copy URLs file: %v", err), "", time.Since(startTime).String())
 		return
 	}
 
@@ -5245,7 +5359,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("[ERROR] Nuclei scan failed: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", "", stderr.String(), cmd.String(), time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", stderr.String(), cmd.String(), time.Since(startTime).String())
 		return
 	}
 
@@ -5257,7 +5371,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	output, err := outputCmd.Output()
 	if err != nil {
 		log.Printf("[ERROR] Failed to read output file: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), cmd.String(), time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), cmd.String(), time.Since(startTime).String())
 		return
 	}
 
@@ -5317,7 +5431,7 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	}
 
 	// Update scan status to indicate SSL scan is complete but tech scan is pending
-	updateNucleiSSLScanStatus(
+	updateMetaDataScanStatus(
 		scanID,
 		"running",
 		string(output),
@@ -5334,12 +5448,12 @@ func executeAndParseNucleiSSLScan(scanID, domain string) {
 	// Run the HTTP/technologies scan
 	if err := executeAndParseNucleiTechScan(urls, scopeTargetID); err != nil {
 		log.Printf("[ERROR] Failed to run HTTP/technologies scan: %v", err)
-		updateNucleiSSLScanStatus(scanID, "error", string(output), fmt.Sprintf("Tech scan failed: %v", err), cmd.String(), time.Since(startTime).String())
+		updateMetaDataScanStatus(scanID, "error", string(output), fmt.Sprintf("Tech scan failed: %v", err), cmd.String(), time.Since(startTime).String())
 		return
 	}
 
 	// Update final scan status after both scans complete successfully
-	updateNucleiSSLScanStatus(
+	updateMetaDataScanStatus(
 		scanID,
 		"success",
 		string(output),
@@ -5639,9 +5753,9 @@ func performDNSLookups(hostname string) DNSResults {
 	return results
 }
 
-func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime string) {
+func updateMetaDataScanStatus(scanID, status, result, stderr, command, execTime string) {
 	log.Printf("[INFO] Updating Nuclei SSL scan status for %s to %s", scanID, status)
-	query := `UPDATE nuclei_ssl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+	query := `UPDATE metadata_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
 	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to update Nuclei SSL scan status for %s: %v", scanID, err)
@@ -5650,12 +5764,12 @@ func updateNucleiSSLScanStatus(scanID, status, result, stderr, command, execTime
 	}
 }
 
-func getNucleiSSLScanStatus(w http.ResponseWriter, r *http.Request) {
+func getMetaDataScanStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	scanID := vars["scan_id"]
 
-	var scan NucleiSSLStatus
-	query := `SELECT * FROM nuclei_ssl_scans WHERE scan_id = $1`
+	var scan MetaDataStatus
+	query := `SELECT * FROM metadata_scans WHERE scan_id = $1`
 	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
 		&scan.ID,
 		&scan.ScanID,
@@ -5700,11 +5814,11 @@ func getNucleiSSLScanStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func getNucleiSSLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
+func getMetaDataScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	scopeTargetID := vars["id"]
 
-	query := `SELECT * FROM nuclei_ssl_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	query := `SELECT * FROM metadata_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get scans: %v", err)
@@ -5715,7 +5829,7 @@ func getNucleiSSLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 	var scans []map[string]interface{}
 	for rows.Next() {
-		var scan NucleiSSLStatus
+		var scan MetaDataStatus
 		err := rows.Scan(
 			&scan.ID,
 			&scan.ScanID,

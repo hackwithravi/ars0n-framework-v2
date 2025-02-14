@@ -265,7 +265,7 @@ type NucleiScreenshotStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
-type NucleiSSLStatus struct {
+type MetaDataStatus struct {
 	ID            string         `json:"id"`
 	ScanID        string         `json:"scan_id"`
 	Domain        string         `json:"domain"`

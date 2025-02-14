@@ -256,7 +256,7 @@ func createTables() {
 			created_at TIMESTAMP DEFAULT NOW(),
 			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS nuclei_ssl_scans (
+		`CREATE TABLE IF NOT EXISTS metadata_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL UNIQUE,
 			domain TEXT NOT NULL,

@@ -1,12 +1,25 @@
-import React from 'react';
 import { Modal, Badge, Accordion } from 'react-bootstrap';
+import { useEffect } from 'react';
 
-const SSLMetadataModal = ({
-  showSSLMetadataModal,
-  handleCloseSSLMetadataModal,
-  targetURLs
+const MetaDataModal = ({
+  showMetaDataModal,
+  handleCloseMetaDataModal,
+  targetURLs,
+  setTargetURLs
 }) => {
-  console.log('SSLMetadataModal targetURLs:', targetURLs);
+  console.log('MetaDataModal targetURLs:', targetURLs);
+
+  useEffect(() => {
+    const handleMetadataScanComplete = (event) => {
+      setTargetURLs(event.detail);
+    };
+
+    window.addEventListener('metadataScanComplete', handleMetadataScanComplete);
+
+    return () => {
+      window.removeEventListener('metadataScanComplete', handleMetadataScanComplete);
+    };
+  }, [setTargetURLs]);
 
   const getSeverityBadgeColor = (severity) => {
     switch (severity?.toLowerCase()) {
@@ -36,8 +49,8 @@ const SSLMetadataModal = ({
   return (
     <Modal
       data-bs-theme="dark"
-      show={showSSLMetadataModal}
-      onHide={handleCloseSSLMetadataModal}
+      show={showMetaDataModal}
+      onHide={handleCloseMetaDataModal}
       size="xl"
     >
       <Modal.Header closeButton>
@@ -283,4 +296,4 @@ const SSLMetadataModal = ({
   );
 };
 
-export default SSLMetadataModal; 
+export default MetaDataModal; 
