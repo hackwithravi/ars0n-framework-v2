@@ -21,14 +21,6 @@ type Subnet struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type DNSRecord struct {
-	ID        string    `json:"id"`
-	ScanID    string    `json:"scan_id"`
-	Record    string    `json:"record"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type IPAddress struct {
 	ID        string    `json:"id"`
 	ScanID    string    `json:"scan_id"`
@@ -63,20 +55,6 @@ type ResponsePayload struct {
 	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
 	Active      bool   `json:"active"`
-}
-
-type AmassScanStatus struct {
-	ID        string         `json:"id"`
-	ScanID    string         `json:"scan_id"`
-	Domain    string         `json:"domain"`
-	Status    string         `json:"status"`
-	Result    sql.NullString `json:"result,omitempty"`
-	Error     sql.NullString `json:"error,omitempty"`
-	StdOut    sql.NullString `json:"stdout,omitempty"`
-	StdErr    sql.NullString `json:"stderr,omitempty"`
-	Command   sql.NullString `json:"command,omitempty"`
-	ExecTime  sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
 }
 
 type ServiceProvider struct {
@@ -316,11 +294,6 @@ type TargetURL struct {
 
 type ASNResponse struct {
 	Number  string `json:"number"`
-	RawData string `json:"raw_data"`
-}
-
-type SubnetResponse struct {
-	CIDR    string `json:"cidr"`
 	RawData string `json:"raw_data"`
 }
 
