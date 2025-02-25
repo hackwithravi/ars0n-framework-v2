@@ -184,21 +184,6 @@ type CeWLScanStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
-type NucleiScreenshotStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
 type MetaDataStatus struct {
 	ID            string         `json:"id"`
 	ScanID        string         `json:"scan_id"`
