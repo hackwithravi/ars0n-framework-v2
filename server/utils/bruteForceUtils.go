@@ -86,6 +86,130 @@ func RunShuffleDNSScan(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
+func RunCeWLScansForUrls(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		URLs []string `json:"urls" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload.URLs) == 0 {
+		http.Error(w, "Invalid request body. `urls` is required and must contain at least one URL.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO cewl_scans (scan_id, url, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err := dbPool.Exec(context.Background(), insertQuery, scanID, payload.URLs, "pending", nil)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go ExecuteAndParseCeWLScansForUrls(scanID, payload.URLs)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func RunShuffleDNSWithWordlist(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Wordlist string `json:"wordlist" binding:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Wordlist == "" {
+		http.Error(w, "Invalid request body. `wordlist` is required.", http.StatusBadRequest)
+		return
+	}
+
+	scanID := uuid.New().String()
+	insertQuery := `INSERT INTO shuffledns_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
+	_, err := dbPool.Exec(context.Background(), insertQuery, scanID, payload.Wordlist, "pending", nil)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create scan record: %v", err)
+		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
+		return
+	}
+
+	go ExecuteAndParseShuffleDNSWithWordlist(scanID, payload.Wordlist)
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+}
+
+func ExecuteAndParseShuffleDNSWithWordlist(scanID, wordlist string) {
+	log.Printf("[INFO] Starting ShuffleDNS scan with wordlist (scan ID: %s)", scanID)
+	startTime := time.Now()
+
+	// Create temporary directory for wordlist and resolvers
+	tempDir := "/tmp/shuffledns-temp"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Printf("[ERROR] Failed to create temp directory: %v", err)
+		UpdateShuffleDNSScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp directory: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write wordlist to a temporary file
+	wordlistFile := filepath.Join(tempDir, "wordlist.txt")
+	if err := os.WriteFile(wordlistFile, []byte(wordlist), 0644); err != nil {
+		log.Printf("[ERROR] Failed to write wordlist file: %v", err)
+		UpdateShuffleDNSScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write wordlist file: %v", err), "", time.Since(startTime).String())
+		return
+	}
+
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-shuffledns-1",
+		"shuffledns",
+		"-d", wordlistFile,
+		"-w", "/app/wordlists/all.txt",
+		"-r", "/app/wordlists/resolvers.txt",
+		"-silent",
+		"-massdns", "/usr/local/bin/massdns",
+		"-mode", "bruteforce",
+	)
+
+	log.Printf("[INFO] Executing command: %s", cmd.String())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	execTime := time.Since(startTime).String()
+
+	if err != nil {
+		log.Printf("[ERROR] ShuffleDNS scan failed for wordlist: %v", err)
+		log.Printf("[ERROR] stderr output: %s", stderr.String())
+		UpdateShuffleDNSScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		return
+	}
+
+	result := stdout.String()
+	log.Printf("[INFO] ShuffleDNS scan completed in %s for wordlist", execTime)
+	log.Printf("[DEBUG] Raw output length: %d bytes", len(result))
+
+	if result == "" {
+		log.Printf("[WARN] No output from ShuffleDNS scan")
+		UpdateShuffleDNSScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
+	} else {
+		log.Printf("[DEBUG] ShuffleDNS output: %s", result)
+		UpdateShuffleDNSScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	}
+
+	log.Printf("[INFO] Scan status updated for scan %s", scanID)
+}
+
+func ExecuteAndParseCeWLScansForUrls(scanID string, urls []string) {
+	log.Printf("[INFO] Starting CeWL scans for URLs (scan ID: %s)", scanID)
+	startTime := time.Now()
+
+	for _, url := range urls {
+		go ExecuteAndParseCeWLScan(scanID, url)
+	}
+
+	execTime := time.Since(startTime).String()
+	log.Printf("[INFO] CeWL scans completed in %s", execTime)
+}
+
 func ExecuteAndParseShuffleDNSScan(scanID, domain string) {
 	log.Printf("[INFO] Starting ShuffleDNS scan for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()

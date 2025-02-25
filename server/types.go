@@ -65,20 +65,6 @@ type ServiceProvider struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type HttpxScanStatus struct {
-	ID        string         `json:"id"`
-	ScanID    string         `json:"scan_id"`
-	Domain    string         `json:"domain"`
-	Status    string         `json:"status"`
-	Result    sql.NullString `json:"result,omitempty"`
-	Error     sql.NullString `json:"error,omitempty"`
-	StdOut    sql.NullString `json:"stdout,omitempty"`
-	StdErr    sql.NullString `json:"stderr,omitempty"`
-	Command   sql.NullString `json:"command,omitempty"`
-	ExecTime  sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
 type ScanSummary struct {
 	ID        string    `json:"id"`
 	ScanID    string    `json:"scan_id"`
@@ -198,36 +184,6 @@ type CeWLScanStatus struct {
 	ScopeTargetID string         `json:"scope_target_id"`
 }
 
-type GoSpiderScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
-type SubdomainizerScanStatus struct {
-	ID            string         `json:"id"`
-	ScanID        string         `json:"scan_id"`
-	Domain        string         `json:"domain"`
-	Status        string         `json:"status"`
-	Result        sql.NullString `json:"result,omitempty"`
-	Error         sql.NullString `json:"error,omitempty"`
-	StdOut        sql.NullString `json:"stdout,omitempty"`
-	StdErr        sql.NullString `json:"stderr,omitempty"`
-	Command       sql.NullString `json:"command,omitempty"`
-	ExecTime      sql.NullString `json:"execution_time,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ScopeTargetID string         `json:"scope_target_id"`
-}
-
 type NucleiScreenshotStatus struct {
 	ID            string         `json:"id"`
 	ScanID        string         `json:"scan_id"`
@@ -256,6 +212,20 @@ type MetaDataStatus struct {
 	ExecTime      sql.NullString `json:"execution_time,omitempty"`
 	CreatedAt     time.Time      `json:"created_at"`
 	ScopeTargetID string         `json:"scope_target_id"`
+}
+
+type ASNResponse struct {
+	Number  string `json:"number"`
+	RawData string `json:"raw_data"`
+}
+
+type ServiceProviderResponse struct {
+	Provider string `json:"provider"`
+	RawData  string `json:"raw_data"`
+}
+
+type CertEntry struct {
+	NameValue string `json:"name_value"`
 }
 
 type TargetURL struct {
@@ -290,20 +260,6 @@ type TargetURL struct {
 	DNSNSRecords        []string               `json:"dns_ns_records,omitempty"`
 	DNSPTRRecords       []string               `json:"dns_ptr_records,omitempty"`
 	DNSSRVRecords       []string               `json:"dns_srv_records,omitempty"`
-}
-
-type ASNResponse struct {
-	Number  string `json:"number"`
-	RawData string `json:"raw_data"`
-}
-
-type ServiceProviderResponse struct {
-	Provider string `json:"provider"`
-	RawData  string `json:"raw_data"`
-}
-
-type CertEntry struct {
-	NameValue string `json:"name_value"`
 }
 
 type TargetURLResponse struct {
