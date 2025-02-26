@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { Modal, Button, Badge } from 'react-bootstrap';
 import { MdZoomOutMap, MdCloseFullscreen } from 'react-icons/md';
 
+// Add helper function to handle NullString values
+const getNullStringValue = (field) => {
+  if (!field) return null;
+  return field.String || null;
+};
+
 const ScreenshotResultsModal = ({
   showScreenshotResultsModal,
   handleCloseScreenshotResultsModal,
@@ -96,19 +102,19 @@ const ScreenshotResultsModal = ({
                       Status: {targetURL.status_code}
                     </Badge>
                   )}
-                  {targetURL.web_server && (
+                  {getNullStringValue(targetURL.web_server) && (
                     <Badge bg="secondary" className="fs-7">
-                      Server: {targetURL.web_server}
+                      Server: {getNullStringValue(targetURL.web_server)}
                     </Badge>
                   )}
                   {targetURL.technologies && targetURL.technologies.map((tech, techIndex) => (
                     <Badge key={techIndex} bg="info" className="fs-7 text-dark">
-                      {tech}
+                      {getNullStringValue(tech)}
                     </Badge>
                   ))}
-                  {targetURL.title && (
+                  {getNullStringValue(targetURL.title) && (
                     <span className="text-muted small">
-                      {targetURL.title}
+                      {getNullStringValue(targetURL.title)}
                     </span>
                   )}
                   {targetURL.newly_discovered && (
@@ -119,7 +125,7 @@ const ScreenshotResultsModal = ({
                   )}
                 </div>
               </div>
-              {targetURL.screenshot && (
+              {getNullStringValue(targetURL.screenshot) && (
                 <div 
                   style={{ 
                     height: expandedIndex === index ? '500px' : '150px',
@@ -130,7 +136,7 @@ const ScreenshotResultsModal = ({
                   }}
                 >
                   <img 
-                    src={`data:image/png;base64,${targetURL.screenshot}`} 
+                    src={`data:image/png;base64,${getNullStringValue(targetURL.screenshot)}`} 
                     alt={`Screenshot of ${targetURL.url}`}
                     style={{ 
                       width: '100%',
