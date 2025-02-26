@@ -76,6 +76,13 @@ import monitorNucleiScreenshotScanStatus from './utils/monitorNucleiScreenshotSc
 import initiateMetaDataScan from './utils/initiateMetaDataScan';
 import monitorMetaDataScanStatus from './utils/monitorMetaDataScanStatus';
 import MetaDataModal from './modals/MetaDataModal.js';
+import fetchHttpxScans from './utils/fetchHttpxScans';
+
+// Add helper function
+const getHttpxResultsCount = (scan) => {
+  if (!scan?.result?.String) return 0;
+  return scan.result.String.split('\n').filter(line => line.trim()).length;
+};
 
 function App() {
   const [showScanHistoryModal, setShowScanHistoryModal] = useState(false);
@@ -192,6 +199,7 @@ function App() {
   useEffect(() => {
     if (activeTarget) {
       fetchAmassScans(activeTarget, setAmassScans, setMostRecentAmassScan, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains);
+      fetchHttpxScans(activeTarget, setHttpxScans, setMostRecentHttpxScan, setMostRecentHttpxScanStatus);
       fetchConsolidatedSubdomains(activeTarget, setConsolidatedSubdomains, setConsolidatedCount);
     }
   }, [activeTarget]);
@@ -213,6 +221,7 @@ function App() {
 
   useEffect(() => {
     if (activeTarget) {
+      console.log("[DEBUG] Monitoring httpx scan status for target:", activeTarget.scope_target);
       monitorHttpxScanStatus(
         activeTarget,
         setHttpxScans,
@@ -398,7 +407,6 @@ function App() {
           throw new Error('Failed to fetch subdomains');
         }
         const subdomainsData = await response.json();
-        console.log(subdomainsData);
         setSubdomains(subdomainsData);
         setShowSubdomainsModal(true);
       } catch (error) {
@@ -664,6 +672,7 @@ function App() {
   }
 
   const startHttpxScan = () => {
+    console.log("[DEBUG] Starting httpx scan for target:", activeTarget.scope_target);
     initiateHttpxScan(
       activeTarget,
       monitorHttpxScanStatus,
@@ -672,7 +681,7 @@ function App() {
       setMostRecentHttpxScanStatus,
       setMostRecentHttpxScan
     );
-  }
+  };
 
   const startGauScan = () => {
     initiateGauScan(
@@ -1498,7 +1507,7 @@ function App() {
                               <small className="text-white-50">Unique Subdomains</small>
                             </div>
                             <div className="col">
-                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <h3 className="mb-0">{getHttpxResultsCount(mostRecentHttpxScan)}</h3>
                               <small className="text-white-50">Live Web Servers</small>
                             </div>
                           </div>
@@ -1687,7 +1696,7 @@ function App() {
                               <small className="text-white-50">Unique Subdomains</small>
                             </div>
                             <div className="col">
-                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <h3 className="mb-0">{getHttpxResultsCount(mostRecentHttpxScan)}</h3>
                               <small className="text-white-50">Live Web Servers</small>
                             </div>
                           </div>
@@ -1874,7 +1883,7 @@ function App() {
                               <small className="text-white-50">Unique Subdomains</small>
                             </div>
                             <div className="col">
-                              <h3 className="mb-0">{mostRecentHttpxScan?.result ? mostRecentHttpxScan.result.split('\n').filter(line => line.trim()).length : 0}</h3>
+                              <h3 className="mb-0">{getHttpxResultsCount(mostRecentHttpxScan)}</h3>
                               <small className="text-white-50">Live Web Servers</small>
                             </div>
                           </div>

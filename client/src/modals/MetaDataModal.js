@@ -7,7 +7,6 @@ const MetaDataModal = ({
   targetURLs = [],
   setTargetURLs
 }) => {
-  console.log('MetaDataModal targetURLs:', targetURLs);
 
   useEffect(() => {
     const handleMetadataScanComplete = (event) => {
@@ -184,7 +183,6 @@ const MetaDataModal = ({
                                 description: 'Service records - Specifies location of servers for specific services'
                               }
                             ].map((recordType, index) => {
-                              console.log(`${recordType.title}:`, recordType.records);
                               return (recordType.records && recordType.records.length > 0 && (
                                 <Accordion.Item key={index} eventKey={index.toString()}>
                                   <Accordion.Header>

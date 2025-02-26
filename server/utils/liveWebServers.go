@@ -100,28 +100,34 @@ type TargetURLResponse struct {
 
 // RunHttpxScan handles the HTTP request to start a new httpx scan
 func RunHttpxScan(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[DEBUG] Received httpx scan request")
 	var payload struct {
 		FQDN string `json:"fqdn" binding:"required"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		log.Printf("[ERROR] Invalid request body: %v", err)
 		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
 		return
 	}
 
 	domain := payload.FQDN
 	wildcardDomain := fmt.Sprintf("*.%s", domain)
+	log.Printf("[DEBUG] Processing httpx scan for domain: %s (wildcard: %s)", domain, wildcardDomain)
 
 	// Get the scope target ID
 	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
 	var scopeTargetID string
 	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
 	if err != nil {
-		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s: %v", domain, err)
 		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[DEBUG] Found scope target ID: %s", scopeTargetID)
 
 	scanID := uuid.New().String()
+	log.Printf("[DEBUG] Generated new scan ID: %s", scanID)
+
 	insertQuery := `INSERT INTO httpx_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
 	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
 	if err != nil {
@@ -129,11 +135,14 @@ func RunHttpxScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[DEBUG] Created new scan record in database")
 
 	go ExecuteAndParseHttpxScan(scanID, domain)
+	log.Printf("[DEBUG] Started httpx scan execution in background")
 
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
+	log.Printf("[DEBUG] Sent scan ID response to client")
 }
 
 // ExecuteAndParseHttpxScan runs the httpx scan and processes its results
@@ -151,8 +160,10 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 		UpdateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to get scope target ID: %v", err), "", time.Since(startTime).String())
 		return
 	}
+	log.Printf("[DEBUG] Retrieved scope target ID: %s", scopeTargetID)
 
 	// Get consolidated subdomains
+	log.Printf("[DEBUG] Fetching consolidated subdomains from database")
 	rows, err := dbPool.Query(context.Background(),
 		`SELECT subdomain FROM consolidated_subdomains WHERE scope_target_id = $1`,
 		scopeTargetID)
@@ -172,6 +183,7 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 		}
 		domainsToScan = append(domainsToScan, subdomain)
 	}
+	log.Printf("[DEBUG] Found %d subdomains to scan", len(domainsToScan))
 
 	// If no consolidated subdomains found, use the base domain
 	if len(domainsToScan) == 0 {
@@ -180,28 +192,34 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 	}
 
 	// Create temporary directory for domains file
-	tempDir := "/tmp/httpx-temp"
+	tempDir := filepath.Join("/tmp", fmt.Sprintf("httpx-%s", scanID))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		log.Printf("[ERROR] Failed to create temp directory: %v", err)
 		UpdateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to create temp directory: %v", err), "", time.Since(startTime).String())
 		return
 	}
-	defer os.RemoveAll(tempDir)
+	log.Printf("[DEBUG] Created temporary directory: %s", tempDir)
+	defer func() {
+		log.Printf("[DEBUG] Cleaning up temporary directory: %s", tempDir)
+		os.RemoveAll(tempDir)
+	}()
 
 	// Write domains to file
 	domainsFile := filepath.Join(tempDir, "domains.txt")
+	outputFile := filepath.Join(tempDir, "httpx-output.json")
 	if err := os.WriteFile(domainsFile, []byte(strings.Join(domainsToScan, "\n")), 0644); err != nil {
 		log.Printf("[ERROR] Failed to write domains file: %v", err)
 		UpdateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to write domains file: %v", err), "", time.Since(startTime).String())
 		return
 	}
+	log.Printf("[DEBUG] Wrote %d domains to file: %s", len(domainsToScan), domainsFile)
 
 	// Run httpx scan
-	cmd := exec.Command(
+	dockerCmd := []string{
 		"docker", "exec",
 		"ars0n-framework-v2-httpx-1",
 		"httpx",
-		"-l", "/tmp/domains.txt",
+		"-l", filepath.Join("/tmp", fmt.Sprintf("httpx-%s", scanID), "domains.txt"),
 		"-json",
 		"-status-code",
 		"-title",
@@ -212,32 +230,48 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 		"-timeout", "10",
 		"-retries", "2",
 		"-mc", "100,101,200,201,202,203,204,205,206,207,208,226,300,301,302,303,304,305,307,308,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511",
-		"-o", "/tmp/httpx-output.json",
-	)
+		"-o", filepath.Join("/tmp", fmt.Sprintf("httpx-%s", scanID), "httpx-output.json"),
+	}
 
+	cmd := exec.Command(dockerCmd[0], dockerCmd[1:]...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	log.Printf("[DEBUG] Running command: %s", strings.Join(dockerCmd, " "))
 	err = cmd.Run()
 	execTime := time.Since(startTime).String()
 
 	if err != nil {
-		log.Printf("[ERROR] httpx scan failed for %s: %v", domain, err)
-		UpdateHttpxScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		errMsg := stderr.String()
+		log.Printf("[ERROR] httpx scan failed for %s: %v\nStderr: %s", domain, err, errMsg)
+		log.Printf("[DEBUG] Command stdout: %s", stdout.String())
+		UpdateHttpxScanStatus(scanID, "error", "", errMsg, strings.Join(dockerCmd, " "), execTime)
+		return
+	}
+	log.Printf("[DEBUG] httpx scan completed successfully in %s", execTime)
+
+	// Read the output file
+	log.Printf("[DEBUG] Reading output file: %s", outputFile)
+	result, err := os.ReadFile(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read output file: %v", err)
+		UpdateHttpxScanStatus(scanID, "error", "", fmt.Sprintf("Failed to read output file: %v", err), strings.Join(dockerCmd, " "), execTime)
 		return
 	}
 
-	// Process results
-	result := stdout.String()
-	if result == "" {
-		UpdateHttpxScanStatus(scanID, "completed", "", "No results found", cmd.String(), execTime)
+	resultStr := string(result)
+	if resultStr == "" {
+		log.Printf("[INFO] No results found in output file")
+		UpdateHttpxScanStatus(scanID, "completed", "", "No results found", strings.Join(dockerCmd, " "), execTime)
 		return
 	}
+	log.Printf("[DEBUG] Successfully read %d bytes from output file", len(resultStr))
 
 	// Process results and update target URLs
 	var liveURLs []string
-	lines := strings.Split(result, "\n")
+	lines := strings.Split(resultStr, "\n")
+	log.Printf("[DEBUG] Processing %d result lines", len(lines))
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -245,6 +279,7 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 
 		var httpxResult map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &httpxResult); err != nil {
+			log.Printf("[WARN] Failed to parse result line: %v", err)
 			continue
 		}
 
@@ -252,16 +287,22 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 			liveURLs = append(liveURLs, url)
 			if err := UpdateTargetURLFromHttpx(scopeTargetID, httpxResult); err != nil {
 				log.Printf("[WARN] Failed to update target URL for %s: %v", url, err)
+			} else {
+				log.Printf("[DEBUG] Successfully updated target URL: %s", url)
 			}
 		}
 	}
+	log.Printf("[INFO] Found %d live URLs", len(liveURLs))
 
 	// Mark URLs not found in this scan as no longer live
+	log.Printf("[DEBUG] Marking old URLs as no longer live")
 	if err := MarkOldTargetURLsAsNoLongerLive(scopeTargetID, liveURLs); err != nil {
 		log.Printf("[WARN] Failed to mark old target URLs as no longer live: %v", err)
 	}
 
-	UpdateHttpxScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	log.Printf("[DEBUG] Updating final scan status")
+	UpdateHttpxScanStatus(scanID, "success", resultStr, stderr.String(), strings.Join(dockerCmd, " "), execTime)
+	log.Printf("[INFO] httpx scan completed successfully in %s", execTime)
 }
 
 // UpdateHttpxScanStatus updates the status of a httpx scan in the database
@@ -284,7 +325,8 @@ func GetHttpxScanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var scan HttpxScanStatus
-	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at FROM httpx_scans WHERE scan_id = $1`
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at, scope_target_id 
+		FROM httpx_scans WHERE scan_id = $1`
 	err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
 		&scan.ID,
 		&scan.ScanID,
@@ -297,6 +339,7 @@ func GetHttpxScanStatus(w http.ResponseWriter, r *http.Request) {
 		&scan.Command,
 		&scan.ExecTime,
 		&scan.CreatedAt,
+		&scan.ScopeTargetID,
 	)
 	if err != nil {
 		http.Error(w, "Scan not found", http.StatusNotFound)
@@ -315,15 +358,18 @@ func GetHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT * FROM httpx_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+	log.Printf("[DEBUG] Getting httpx scans for scope target: %s", scopeTargetID)
+	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at, scope_target_id 
+		FROM httpx_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
+		log.Printf("[ERROR] Failed to query httpx scans: %v", err)
 		http.Error(w, "Failed to get scans", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var scans []HttpxScanStatus
+	var scans []map[string]interface{}
 	for rows.Next() {
 		var scan HttpxScanStatus
 		err := rows.Scan(
@@ -338,14 +384,50 @@ func GetHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&scan.Command,
 			&scan.ExecTime,
 			&scan.CreatedAt,
+			&scan.ScopeTargetID,
 		)
 		if err != nil {
+			log.Printf("[ERROR] Failed to scan httpx row: %v", err)
 			continue
 		}
-		scans = append(scans, scan)
+
+		log.Printf("[DEBUG] Processing scan ID: %s, Status: %s, Has Result: %v", scan.ScanID, scan.Status, scan.Result.Valid)
+
+		// Convert to map to control JSON serialization
+		scanMap := map[string]interface{}{
+			"id":              scan.ID,
+			"scan_id":         scan.ScanID,
+			"domain":          scan.Domain,
+			"status":          scan.Status,
+			"result":          "", // Default empty string
+			"error":           nullStringToString(scan.Error),
+			"stdout":          nullStringToString(scan.StdOut),
+			"stderr":          nullStringToString(scan.StdErr),
+			"command":         nullStringToString(scan.Command),
+			"execution_time":  nullStringToString(scan.ExecTime),
+			"created_at":      scan.CreatedAt,
+			"scope_target_id": scan.ScopeTargetID,
+		}
+
+		// Only set result if it's not null and not empty
+		if scan.Result.Valid && scan.Result.String != "" {
+			scanMap["result"] = scan.Result.String
+			log.Printf("[DEBUG] Scan %s has results of length: %d", scan.ScanID, len(scan.Result.String))
+		}
+
+		scans = append(scans, scanMap)
 	}
 
-	json.NewEncoder(w).Encode(scans)
+	log.Printf("[DEBUG] Found %d scans for scope target %s", len(scans), scopeTargetID)
+
+	w.Header().Set("Content-Type", "application/json")
+	response := map[string]interface{}{
+		"scans": scans,
+		"count": len(scans),
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[ERROR] Failed to encode response: %v", err)
+	}
 }
 
 // ConsolidateSubdomains consolidates subdomains from various sources

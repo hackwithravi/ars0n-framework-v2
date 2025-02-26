@@ -12,7 +12,7 @@ const initiateHttpxScan = async (
   if (activeTarget.type === 'Wildcard' && fqdn.startsWith('*.')) {
     fqdn = fqdn.substring(2);
   }
-
+  
   try {
     const response = await fetch(
       `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/httpx/run`,
@@ -30,6 +30,7 @@ const initiateHttpxScan = async (
     }
 
     const data = await response.json();
+    console.log(data);
     setIsHttpxScanning(true);
 
     monitorHttpxScanStatus(

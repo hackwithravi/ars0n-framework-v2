@@ -3,14 +3,43 @@ import { Modal, Table } from 'react-bootstrap';
 
 export const HttpxResultsModal = ({ showHttpxResultsModal, handleCloseHttpxResultsModal, httpxResults }) => {
   const parseResults = (results) => {
-    if (!results) return [];
+    console.log("[DEBUG] Modal received results:", results);
+    if (!results) {
+      console.log("[DEBUG] No results provided");
+      return [];
+    }
+
+    // Handle the new response format where result is nested in a String property
+    console.log("[DEBUG] Results structure:", {
+      hasResult: !!results.result,
+      resultType: results.result ? typeof results.result : 'N/A',
+      hasString: !!results.result?.String
+    });
+    const scanResults = results.result?.String;
+    if (!scanResults) {
+      console.log("[DEBUG] No result.String field in results");
+      return [];
+    }
+
     try {
-      // Split by newlines and parse each line as JSON
-      return results.split('\n')
+      console.log("[DEBUG] Parsing results string of length:", scanResults.length);
+      const parsed = scanResults
+        .split('\n')
         .filter(line => line.trim())
-        .map(line => JSON.parse(line));
+        .map(line => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            console.error("[ERROR] Failed to parse line:", line, e);
+            return null;
+          }
+        })
+        .filter(result => result !== null);
+      
+      console.log("[DEBUG] Successfully parsed", parsed.length, "results");
+      return parsed;
     } catch (error) {
-      console.error('Error parsing httpx results:', error);
+      console.error("[ERROR] Error parsing httpx results:", error);
       return [];
     }
   };
@@ -84,7 +113,7 @@ export const HttpxResultsModal = ({ showHttpxResultsModal, handleCloseHttpxResul
     return styles;
   };
 
-  const parsedResults = parseResults(httpxResults?.result);
+  const parsedResults = parseResults(httpxResults);
 
   return (
     <Modal data-bs-theme="dark" show={showHttpxResultsModal} onHide={handleCloseHttpxResultsModal} size="xl">
