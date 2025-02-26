@@ -943,6 +943,7 @@ function App() {
         throw new Error('Failed to fetch target URLs');
       }
       const data = await response.json();
+      console.log(data);
       setTargetURLs(data);
       setShowMetaDataModal(true);
     } catch (error) {

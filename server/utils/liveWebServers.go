@@ -72,6 +72,32 @@ type TargetURL struct {
 	DNSSRVRecords       []string       `json:"dns_srv_records"`
 }
 
+type TargetURLResponse struct {
+	ID                  string         `json:"id"`
+	URL                 string         `json:"url"`
+	Screenshot          sql.NullString `json:"screenshot"`
+	StatusCode          int            `json:"status_code"`
+	Title               sql.NullString `json:"title"`
+	WebServer           sql.NullString `json:"web_server"`
+	Technologies        []string       `json:"technologies"`
+	ContentLength       int            `json:"content_length"`
+	NewlyDiscovered     bool           `json:"newly_discovered"`
+	NoLongerLive        bool           `json:"no_longer_live"`
+	ScopeTargetID       string         `json:"scope_target_id"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	HasDeprecatedTLS    bool           `json:"has_deprecated_tls"`
+	HasExpiredSSL       bool           `json:"has_expired_ssl"`
+	HasMismatchedSSL    bool           `json:"has_mismatched_ssl"`
+	HasRevokedSSL       bool           `json:"has_revoked_ssl"`
+	HasSelfSignedSSL    bool           `json:"has_self_signed_ssl"`
+	HasUntrustedRootSSL bool           `json:"has_untrusted_root_ssl"`
+	HasWildcardTLS      bool           `json:"has_wildcard_tls"`
+	FindingsJSON        []interface{}  `json:"findings_json"`
+	HTTPResponse        sql.NullString `json:"http_response"`
+	HTTPResponseHeaders []byte         `json:"http_response_headers"`
+}
+
 // RunHttpxScan handles the HTTP request to start a new httpx scan
 func RunHttpxScan(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
@@ -675,10 +701,27 @@ func UpdateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 		}
 	}
 
+	// Create findings_json array from technologies
+	findingsJSON := make([]map[string]interface{}, 0)
+	for _, tech := range technologies {
+		finding := map[string]interface{}{
+			"type":        "technology",
+			"name":        tech,
+			"description": fmt.Sprintf("Technology detected: %s", tech),
+			"severity":    "info",
+		}
+		findingsJSON = append(findingsJSON, finding)
+	}
+	findingsJSONBytes, err := json.Marshal(findingsJSON)
+	if err != nil {
+		log.Printf("[WARN] Failed to marshal findings JSON: %v", err)
+		findingsJSONBytes = []byte("[]")
+	}
+
 	// Check if target URL exists and update accordingly
 	var existingID string
 	var isNoLongerLive bool
-	err := dbPool.QueryRow(context.Background(),
+	err = dbPool.QueryRow(context.Background(),
 		`SELECT id, no_longer_live FROM target_urls WHERE url = $1`,
 		url).Scan(&existingID, &isNoLongerLive)
 
@@ -697,7 +740,7 @@ func UpdateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			technologies,
 			httpxData["content_length"],
 			scopeTargetID,
-			"[]")
+			findingsJSONBytes)
 	} else if err == nil {
 		// Update existing target URL
 		updateQuery := `UPDATE target_urls SET 
@@ -720,7 +763,7 @@ func UpdateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			technologies,
 			httpxData["content_length"],
 			isNoLongerLive, // If previously marked as no longer live, mark as newly discovered
-			"[]",
+			findingsJSONBytes,
 			existingID)
 	}
 
@@ -768,7 +811,7 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var targetURLs []TargetURL
+	var targetURLs []TargetURLResponse
 	for rows.Next() {
 		var targetURL TargetURL
 		err := rows.Scan(
@@ -799,8 +842,46 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		targetURLs = append(targetURLs, targetURL)
+
+		// Parse findings_json into a proper array
+		var findings []interface{}
+		if len(targetURL.FindingsJSON) > 0 {
+			if err := json.Unmarshal(targetURL.FindingsJSON, &findings); err != nil {
+				log.Printf("[WARN] Failed to unmarshal findings JSON for URL %s: %v", targetURL.URL, err)
+				findings = make([]interface{}, 0)
+			}
+		} else {
+			findings = make([]interface{}, 0)
+		}
+
+		response := TargetURLResponse{
+			ID:                  targetURL.ID,
+			URL:                 targetURL.URL,
+			Screenshot:          targetURL.Screenshot,
+			StatusCode:          targetURL.StatusCode,
+			Title:               targetURL.Title,
+			WebServer:           targetURL.WebServer,
+			Technologies:        targetURL.Technologies,
+			ContentLength:       targetURL.ContentLength,
+			NewlyDiscovered:     targetURL.NewlyDiscovered,
+			NoLongerLive:        targetURL.NoLongerLive,
+			ScopeTargetID:       targetURL.ScopeTargetID,
+			CreatedAt:           targetURL.CreatedAt,
+			UpdatedAt:           targetURL.UpdatedAt,
+			HasDeprecatedTLS:    targetURL.HasDeprecatedTLS,
+			HasExpiredSSL:       targetURL.HasExpiredSSL,
+			HasMismatchedSSL:    targetURL.HasMismatchedSSL,
+			HasRevokedSSL:       targetURL.HasRevokedSSL,
+			HasSelfSignedSSL:    targetURL.HasSelfSignedSSL,
+			HasUntrustedRootSSL: targetURL.HasUntrustedRootSSL,
+			HasWildcardTLS:      targetURL.HasWildcardTLS,
+			FindingsJSON:        findings,
+			HTTPResponse:        targetURL.HTTPResponse,
+			HTTPResponseHeaders: targetURL.HTTPResponseHeaders,
+		}
+		targetURLs = append(targetURLs, response)
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(targetURLs)
 }
