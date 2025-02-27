@@ -945,6 +945,7 @@ function App() {
 
   const handleOpenMetaDataModal = async () => {
     try {
+      console.log('Fetching target URLs for scope target:', activeTarget.id);
       const response = await fetch(
         `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/target-urls`
       );
@@ -952,7 +953,7 @@ function App() {
         throw new Error('Failed to fetch target URLs');
       }
       const data = await response.json();
-      console.log(data);
+      console.log('Received target URLs:', data);
       setTargetURLs(data);
       setShowMetaDataModal(true);
     } catch (error) {

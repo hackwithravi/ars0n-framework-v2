@@ -70,32 +70,42 @@ type TargetURL struct {
 	DNSNSRecords        []string       `json:"dns_ns_records"`
 	DNSPTRRecords       []string       `json:"dns_ptr_records"`
 	DNSSRVRecords       []string       `json:"dns_srv_records"`
+	KatanaResults       []byte         `json:"katana_results"`
 }
 
 type TargetURLResponse struct {
-	ID                  string         `json:"id"`
-	URL                 string         `json:"url"`
-	Screenshot          sql.NullString `json:"screenshot"`
-	StatusCode          int            `json:"status_code"`
-	Title               sql.NullString `json:"title"`
-	WebServer           sql.NullString `json:"web_server"`
-	Technologies        []string       `json:"technologies"`
-	ContentLength       int            `json:"content_length"`
-	NewlyDiscovered     bool           `json:"newly_discovered"`
-	NoLongerLive        bool           `json:"no_longer_live"`
-	ScopeTargetID       string         `json:"scope_target_id"`
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-	HasDeprecatedTLS    bool           `json:"has_deprecated_tls"`
-	HasExpiredSSL       bool           `json:"has_expired_ssl"`
-	HasMismatchedSSL    bool           `json:"has_mismatched_ssl"`
-	HasRevokedSSL       bool           `json:"has_revoked_ssl"`
-	HasSelfSignedSSL    bool           `json:"has_self_signed_ssl"`
-	HasUntrustedRootSSL bool           `json:"has_untrusted_root_ssl"`
-	HasWildcardTLS      bool           `json:"has_wildcard_tls"`
-	FindingsJSON        []interface{}  `json:"findings_json"`
-	HTTPResponse        sql.NullString `json:"http_response"`
-	HTTPResponseHeaders []byte         `json:"http_response_headers"`
+	ID                  string                 `json:"id"`
+	URL                 string                 `json:"url"`
+	Screenshot          sql.NullString         `json:"screenshot"`
+	StatusCode          int                    `json:"status_code"`
+	Title               sql.NullString         `json:"title"`
+	WebServer           sql.NullString         `json:"web_server"`
+	Technologies        []string               `json:"technologies"`
+	ContentLength       int                    `json:"content_length"`
+	NewlyDiscovered     bool                   `json:"newly_discovered"`
+	NoLongerLive        bool                   `json:"no_longer_live"`
+	ScopeTargetID       string                 `json:"scope_target_id"`
+	CreatedAt           time.Time              `json:"created_at"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+	HasDeprecatedTLS    bool                   `json:"has_deprecated_tls"`
+	HasExpiredSSL       bool                   `json:"has_expired_ssl"`
+	HasMismatchedSSL    bool                   `json:"has_mismatched_ssl"`
+	HasRevokedSSL       bool                   `json:"has_revoked_ssl"`
+	HasSelfSignedSSL    bool                   `json:"has_self_signed_ssl"`
+	HasUntrustedRootSSL bool                   `json:"has_untrusted_root_ssl"`
+	HasWildcardTLS      bool                   `json:"has_wildcard_tls"`
+	FindingsJSON        []interface{}          `json:"findings_json"`
+	HTTPResponse        sql.NullString         `json:"http_response"`
+	HTTPResponseHeaders map[string]interface{} `json:"http_response_headers"`
+	DNSARecords         []string               `json:"dns_a_records"`
+	DNSAAAARecords      []string               `json:"dns_aaaa_records"`
+	DNSCNAMERecords     []string               `json:"dns_cname_records"`
+	DNSMXRecords        []string               `json:"dns_mx_records"`
+	DNSTXTRecords       []string               `json:"dns_txt_records"`
+	DNSNSRecords        []string               `json:"dns_ns_records"`
+	DNSPTRRecords       []string               `json:"dns_ptr_records"`
+	DNSSRVRecords       []string               `json:"dns_srv_records"`
+	KatanaResults       []string               `json:"katana_results"`
 }
 
 // RunHttpxScan handles the HTTP request to start a new httpx scan
@@ -881,13 +891,17 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			   scope_target_id, created_at, updated_at,
 			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
 			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
-			   has_wildcard_tls, findings_json, http_response, http_response_headers
+			   has_wildcard_tls, findings_json, http_response, http_response_headers,
+			   dns_a_records, dns_aaaa_records, dns_cname_records,
+			   dns_mx_records, dns_txt_records, dns_ns_records,
+			   dns_ptr_records, dns_srv_records, katana_results
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
 
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
+		log.Printf("[ERROR] Failed to get target URLs: %v", err)
 		http.Error(w, "Failed to get target URLs", http.StatusInternalServerError)
 		return
 	}
@@ -920,8 +934,18 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.FindingsJSON,
 			&targetURL.HTTPResponse,
 			&targetURL.HTTPResponseHeaders,
+			&targetURL.DNSARecords,
+			&targetURL.DNSAAAARecords,
+			&targetURL.DNSCNAMERecords,
+			&targetURL.DNSMXRecords,
+			&targetURL.DNSTXTRecords,
+			&targetURL.DNSNSRecords,
+			&targetURL.DNSPTRRecords,
+			&targetURL.DNSSRVRecords,
+			&targetURL.KatanaResults,
 		)
 		if err != nil {
+			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
 			continue
 		}
 
@@ -934,6 +958,28 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			findings = make([]interface{}, 0)
+		}
+
+		// Parse katana_results into a proper array
+		var katanaResults []string
+		if len(targetURL.KatanaResults) > 0 {
+			if err := json.Unmarshal(targetURL.KatanaResults, &katanaResults); err != nil {
+				log.Printf("[WARN] Failed to unmarshal katana results for URL %s: %v", targetURL.URL, err)
+				katanaResults = make([]string, 0)
+			}
+		} else {
+			katanaResults = make([]string, 0)
+		}
+
+		// Parse http_response_headers into a map
+		var httpResponseHeaders map[string]interface{}
+		if len(targetURL.HTTPResponseHeaders) > 0 {
+			if err := json.Unmarshal(targetURL.HTTPResponseHeaders, &httpResponseHeaders); err != nil {
+				log.Printf("[WARN] Failed to unmarshal HTTP response headers for URL %s: %v", targetURL.URL, err)
+				httpResponseHeaders = make(map[string]interface{})
+			}
+		} else {
+			httpResponseHeaders = make(map[string]interface{})
 		}
 
 		response := TargetURLResponse{
@@ -959,7 +1005,16 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			HasWildcardTLS:      targetURL.HasWildcardTLS,
 			FindingsJSON:        findings,
 			HTTPResponse:        targetURL.HTTPResponse,
-			HTTPResponseHeaders: targetURL.HTTPResponseHeaders,
+			HTTPResponseHeaders: httpResponseHeaders,
+			DNSARecords:         targetURL.DNSARecords,
+			DNSAAAARecords:      targetURL.DNSAAAARecords,
+			DNSCNAMERecords:     targetURL.DNSCNAMERecords,
+			DNSMXRecords:        targetURL.DNSMXRecords,
+			DNSTXTRecords:       targetURL.DNSTXTRecords,
+			DNSNSRecords:        targetURL.DNSNSRecords,
+			DNSPTRRecords:       targetURL.DNSPTRRecords,
+			DNSSRVRecords:       targetURL.DNSSRVRecords,
+			KatanaResults:       katanaResults,
 		}
 		targetURLs = append(targetURLs, response)
 	}

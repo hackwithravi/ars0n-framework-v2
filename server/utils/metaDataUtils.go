@@ -186,7 +186,176 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 	}
 	log.Printf("[INFO] Successfully wrote %d URLs to temp file for scan ID: %s", len(urls), scanID)
 
-	// Copy the URLs file into the container
+	// Run Katana scan first
+	log.Printf("[INFO] Starting Katana scan for scan ID: %s", scanID)
+	katanaResults := make(map[string][]string)
+	for _, url := range urls {
+		log.Printf("[DEBUG] Running Katana scan for URL: %s", url)
+		katanaCmd := exec.Command(
+			"docker", "exec", "ars0n-framework-v2-katana-1",
+			"katana",
+			"-u", url,
+			"-jc",
+			"-d", "3",
+			"-j",
+			"-v",
+		)
+
+		var stdout, stderr bytes.Buffer
+		katanaCmd.Stdout = &stdout
+		katanaCmd.Stderr = &stderr
+
+		log.Printf("[DEBUG] Executing Katana command: %s", katanaCmd.String())
+		if err := katanaCmd.Run(); err != nil {
+			log.Printf("[WARN] Katana scan failed for URL %s: %v\nStderr: %s", url, err, stderr.String())
+			continue
+		}
+		log.Printf("[DEBUG] Katana scan completed for URL: %s", url)
+
+		var crawledURLs []string
+		seenURLs := make(map[string]bool)
+
+		for _, line := range strings.Split(stdout.String(), "\n") {
+			if line == "" {
+				continue
+			}
+
+			var result struct {
+				Timestamp string `json:"timestamp"`
+				Request   struct {
+					Method   string `json:"method"`
+					Endpoint string `json:"endpoint"`
+					Tag      string `json:"tag"`
+					Source   string `json:"source"`
+					Raw      string `json:"raw"`
+				} `json:"request"`
+				Response struct {
+					StatusCode    int                    `json:"status_code"`
+					Headers       map[string]interface{} `json:"headers"`
+					Body          string                 `json:"body"`
+					ContentLength int                    `json:"content_length"`
+				} `json:"response"`
+			}
+
+			if err := json.Unmarshal([]byte(line), &result); err != nil {
+				log.Printf("[WARN] Failed to parse Katana output line: %v", err)
+				continue
+			}
+
+			// Add unique URLs from various sources
+			addUniqueURL := func(urlStr string) {
+				if urlStr != "" && !seenURLs[urlStr] {
+					seenURLs[urlStr] = true
+					crawledURLs = append(crawledURLs, urlStr)
+				}
+			}
+
+			// Process endpoint URL
+			addUniqueURL(result.Request.Endpoint)
+
+			// Process source URL
+			addUniqueURL(result.Request.Source)
+
+			// Look for URLs in response headers
+			for _, headerVals := range result.Response.Headers {
+				switch v := headerVals.(type) {
+				case string:
+					if strings.Contains(v, "http://") || strings.Contains(v, "https://") {
+						addUniqueURL(v)
+					}
+				case []interface{}:
+					for _, val := range v {
+						if str, ok := val.(string); ok {
+							if strings.Contains(str, "http://") || strings.Contains(str, "https://") {
+								addUniqueURL(str)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Remove any invalid URLs and normalize the rest
+		var validURLs []string
+		for _, urlStr := range crawledURLs {
+			if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
+				validURLs = append(validURLs, NormalizeURL(urlStr))
+			}
+		}
+		crawledURLs = validURLs
+
+		log.Printf("[INFO] Katana found %d unique URLs for %s", len(crawledURLs), url)
+		if len(crawledURLs) > 0 {
+			log.Printf("[DEBUG] First 5 URLs found by Katana for %s:", url)
+			for i, crawledURL := range crawledURLs {
+				if i >= 5 {
+					break
+				}
+				log.Printf("[DEBUG]   - %s", crawledURL)
+			}
+			if len(crawledURLs) > 5 {
+				log.Printf("[DEBUG]   ... and %d more URLs", len(crawledURLs)-5)
+			}
+		}
+		katanaResults[url] = crawledURLs
+	}
+
+	log.Printf("[INFO] Katana scan completed for all URLs. Total results: %d URLs across %d targets",
+		func() int {
+			total := 0
+			for _, urls := range katanaResults {
+				total += len(urls)
+			}
+			return total
+		}(),
+		len(katanaResults))
+
+	// Update the target_urls table to include Katana results
+	for baseURL, crawledURLs := range katanaResults {
+		// First check if the target_url exists
+		var exists bool
+		err = dbPool.QueryRow(context.Background(),
+			`SELECT EXISTS(SELECT 1 FROM target_urls WHERE url = $1 AND scope_target_id = $2)`,
+			baseURL, scopeTargetID).Scan(&exists)
+		if err != nil {
+			log.Printf("[ERROR] Failed to check if target URL exists %s: %v", baseURL, err)
+			continue
+		}
+
+		// If it doesn't exist, insert it
+		if !exists {
+			_, err = dbPool.Exec(context.Background(),
+				`INSERT INTO target_urls (url, scope_target_id) VALUES ($1, $2)`,
+				baseURL, scopeTargetID)
+			if err != nil {
+				log.Printf("[ERROR] Failed to insert target URL %s: %v", baseURL, err)
+				continue
+			}
+			log.Printf("[DEBUG] Inserted new target URL: %s", baseURL)
+		} else {
+			log.Printf("[DEBUG] Target URL already exists: %s", baseURL)
+		}
+
+		// Then update with Katana results
+		katanaResultsJSON, err := json.Marshal(crawledURLs)
+		if err != nil {
+			log.Printf("[ERROR] Failed to marshal Katana results for URL %s: %v", baseURL, err)
+			continue
+		}
+
+		_, err = dbPool.Exec(context.Background(),
+			`UPDATE target_urls 
+			 SET katana_results = $1::jsonb 
+			 WHERE url = $2 AND scope_target_id = $3`,
+			string(katanaResultsJSON), baseURL, scopeTargetID)
+		if err != nil {
+			log.Printf("[ERROR] Failed to update Katana results for URL %s: %v", baseURL, err)
+		} else {
+			log.Printf("[INFO] Successfully stored %d Katana results for URL %s", len(crawledURLs), baseURL)
+		}
+	}
+
+	// Copy the URLs file into the container for SSL scan
 	copyCmd := exec.Command(
 		"docker", "cp",
 		tempFile.Name(),
@@ -466,15 +635,19 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		// Convert headers to map for JSON storage
 		headers := make(map[string]interface{})
 		for k, v := range resp.Header {
+			// Convert header values to a consistent format
 			if len(v) == 1 {
-				headers[k] = SanitizeResponse([]byte(v[0]))
+				headers[k] = v[0] // Store single value directly
 			} else {
-				sanitizedValues := make([]string, len(v))
-				for i, val := range v {
-					sanitizedValues[i] = SanitizeResponse([]byte(val))
-				}
-				headers[k] = sanitizedValues
+				headers[k] = v // Store multiple values as string slice
 			}
+		}
+
+		// Convert headers to JSON before storing
+		headersJSON, err := json.Marshal(headers)
+		if err != nil {
+			log.Printf("[ERROR] Failed to marshal headers for URL %s: %v", urlStr, err)
+			continue
 		}
 
 		// Update database with findings, response data, and DNS records
@@ -483,7 +656,7 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			SET 
 				findings_json = $1::jsonb,
 				http_response = $2,
-				http_response_headers = $3,
+				http_response_headers = $3::jsonb,
 				dns_a_records = $4,
 				dns_aaaa_records = $5,
 				dns_cname_records = $6,
@@ -505,7 +678,7 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			query,
 			findingsJSON,
 			sanitizedBody,
-			headers,
+			string(headersJSON), // Store headers as JSONB
 			dnsResults.ARecords,
 			dnsResults.AAAARecords,
 			dnsResults.CNAMERecords,
@@ -533,67 +706,208 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 }
 
 func PerformDNSLookups(hostname string) DNSResults {
+	log.Printf("[DEBUG] Starting DNS lookups for hostname: %s", hostname)
 	var results DNSResults
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Perform A record lookup
-	if ips, err := net.LookupIP(hostname); err == nil {
+	// First, try to get DNS records from latest Amass scan
+	var amassResult string
+	err := dbPool.QueryRow(context.Background(), `
+		SELECT result
+		FROM amass_scans 
+		WHERE status = 'success' 
+		AND result::jsonb ? 'dns_records'
+		ORDER BY created_at DESC 
+		LIMIT 1`).Scan(&amassResult)
+
+	if err == nil && amassResult != "" {
+		var amassData struct {
+			DNSRecords struct {
+				A     []string `json:"a"`
+				AAAA  []string `json:"aaaa"`
+				CNAME []string `json:"cname"`
+				MX    []string `json:"mx"`
+				TXT   []string `json:"txt"`
+				NS    []string `json:"ns"`
+				PTR   []string `json:"ptr"`
+				SRV   []string `json:"srv"`
+			} `json:"dns_records"`
+		}
+
+		if err := json.Unmarshal([]byte(amassResult), &amassData); err == nil {
+			log.Printf("[DEBUG] Found Amass DNS records for %s:", hostname)
+			log.Printf("[DEBUG]   A Records: %d", len(amassData.DNSRecords.A))
+			log.Printf("[DEBUG]   AAAA Records: %d", len(amassData.DNSRecords.AAAA))
+			log.Printf("[DEBUG]   CNAME Records: %d", len(amassData.DNSRecords.CNAME))
+			log.Printf("[DEBUG]   MX Records: %d", len(amassData.DNSRecords.MX))
+			log.Printf("[DEBUG]   TXT Records: %d", len(amassData.DNSRecords.TXT))
+			log.Printf("[DEBUG]   NS Records: %d", len(amassData.DNSRecords.NS))
+			log.Printf("[DEBUG]   PTR Records: %d", len(amassData.DNSRecords.PTR))
+			log.Printf("[DEBUG]   SRV Records: %d", len(amassData.DNSRecords.SRV))
+
+			results.ARecords = append(results.ARecords, amassData.DNSRecords.A...)
+			results.AAAARecords = append(results.AAAARecords, amassData.DNSRecords.AAAA...)
+			results.CNAMERecords = append(results.CNAMERecords, amassData.DNSRecords.CNAME...)
+			results.MXRecords = append(results.MXRecords, amassData.DNSRecords.MX...)
+			results.TXTRecords = append(results.TXTRecords, amassData.DNSRecords.TXT...)
+			results.NSRecords = append(results.NSRecords, amassData.DNSRecords.NS...)
+			results.PTRRecords = append(results.PTRRecords, amassData.DNSRecords.PTR...)
+			results.SRVRecords = append(results.SRVRecords, amassData.DNSRecords.SRV...)
+		}
+	} else if err != pgx.ErrNoRows {
+		log.Printf("[DEBUG] Error fetching Amass DNS records: %v", err)
+	}
+
+	// Create a custom resolver with shorter timeout
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: 5 * time.Second,
+			}
+			return d.DialContext(ctx, network, "8.8.8.8:53")
+		},
+	}
+
+	// A and AAAA records with error logging
+	log.Printf("[DEBUG] Looking up A/AAAA records for %s", hostname)
+	if ips, err := resolver.LookupIPAddr(ctx, hostname); err == nil {
 		for _, ip := range ips {
-			if ipv4 := ip.To4(); ipv4 != nil {
+			if ipv4 := ip.IP.To4(); ipv4 != nil {
 				results.ARecords = append(results.ARecords, ipv4.String())
+				log.Printf("[DEBUG] Found A record: %s", ipv4.String())
 			} else {
-				results.AAAARecords = append(results.AAAARecords, ip.String())
+				results.AAAARecords = append(results.AAAARecords, ip.IP.String())
+				log.Printf("[DEBUG] Found AAAA record: %s", ip.IP.String())
 			}
 		}
+	} else {
+		log.Printf("[DEBUG] A/AAAA lookup failed for %s: %v", hostname, err)
 	}
 
-	// Perform CNAME lookup using a more reliable method
-	if _, err := net.DefaultResolver.LookupHost(context.Background(), hostname); err == nil {
-		// First try to get the CNAME record
-		if cname, err := net.DefaultResolver.LookupCNAME(context.Background(), hostname); err == nil && cname != "" {
-			cname = strings.TrimSuffix(cname, ".")
-			if cname != hostname && !strings.HasSuffix(hostname, cname) {
-				results.CNAMERecords = append(results.CNAMERecords, fmt.Sprintf("%s -> %s", cname, hostname))
-			}
+	// CNAME lookup with better error handling
+	log.Printf("[DEBUG] Looking up CNAME records for %s", hostname)
+	if cname, err := resolver.LookupCNAME(ctx, hostname); err == nil && cname != "" {
+		cname = strings.TrimSuffix(cname, ".")
+		if cname != hostname {
+			record := fmt.Sprintf("%s -> %s", hostname, cname)
+			results.CNAMERecords = append(results.CNAMERecords, record)
+			log.Printf("[DEBUG] Found CNAME record: %s", record)
 		}
+	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+		log.Printf("[DEBUG] CNAME lookup failed for %s: %v", hostname, err)
 	}
 
-	// Perform MX lookup
-	if mxRecords, err := net.LookupMX(hostname); err == nil {
+	// MX lookup with improved formatting
+	log.Printf("[DEBUG] Looking up MX records for %s", hostname)
+	if mxRecords, err := resolver.LookupMX(ctx, hostname); err == nil {
 		for _, mx := range mxRecords {
-			results.MXRecords = append(results.MXRecords, fmt.Sprintf("%s %d", strings.TrimSuffix(mx.Host, "."), mx.Pref))
+			record := fmt.Sprintf("Priority: %d | Server: %s", mx.Pref, strings.TrimSuffix(mx.Host, "."))
+			results.MXRecords = append(results.MXRecords, record)
+			log.Printf("[DEBUG] Found MX record: %s", record)
 		}
+	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+		log.Printf("[DEBUG] MX lookup failed for %s: %v", hostname, err)
 	}
 
-	// Perform TXT lookup
-	if txtRecords, err := net.LookupTXT(hostname); err == nil {
-		results.TXTRecords = append(results.TXTRecords, txtRecords...)
+	// TXT lookup with error handling
+	log.Printf("[DEBUG] Looking up TXT records for %s", hostname)
+	if txtRecords, err := resolver.LookupTXT(ctx, hostname); err == nil {
+		for _, txt := range txtRecords {
+			results.TXTRecords = append(results.TXTRecords, txt)
+			log.Printf("[DEBUG] Found TXT record: %s", txt)
+		}
+	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+		log.Printf("[DEBUG] TXT lookup failed for %s: %v", hostname, err)
 	}
 
-	// Perform NS lookup
-	if nsRecords, err := net.LookupNS(hostname); err == nil {
+	// NS lookup with error handling
+	log.Printf("[DEBUG] Looking up NS records for %s", hostname)
+	if nsRecords, err := resolver.LookupNS(ctx, hostname); err == nil {
 		for _, ns := range nsRecords {
-			results.NSRecords = append(results.NSRecords, strings.TrimSuffix(ns.Host, "."))
+			record := strings.TrimSuffix(ns.Host, ".")
+			results.NSRecords = append(results.NSRecords, record)
+			log.Printf("[DEBUG] Found NS record: %s", record)
+		}
+	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+		log.Printf("[DEBUG] NS lookup failed for %s: %v", hostname, err)
+	}
+
+	// PTR lookup for both IPv4 and IPv6
+	lookupPTR := func(ip string) {
+		log.Printf("[DEBUG] Looking up PTR records for IP %s", ip)
+		if names, err := resolver.LookupAddr(ctx, ip); err == nil {
+			for _, name := range names {
+				record := fmt.Sprintf("%s -> %s", ip, strings.TrimSuffix(name, "."))
+				results.PTRRecords = append(results.PTRRecords, record)
+				log.Printf("[DEBUG] Found PTR record: %s", record)
+			}
+		} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+			log.Printf("[DEBUG] PTR lookup failed for %s: %v", ip, err)
 		}
 	}
 
-	// Perform PTR lookup (reverse DNS)
-	if names, err := net.LookupAddr(hostname); err == nil {
-		for _, name := range names {
-			results.PTRRecords = append(results.PTRRecords, strings.TrimSuffix(name, "."))
-		}
+	// Perform PTR lookups for both A and AAAA records
+	for _, ip := range results.ARecords {
+		lookupPTR(ip)
+	}
+	for _, ip := range results.AAAARecords {
+		lookupPTR(ip)
 	}
 
-	// Perform SRV lookup for common services
+	// SRV lookup with improved formatting and error handling
 	services := []string{"_http._tcp", "_https._tcp", "_ldap._tcp", "_kerberos._tcp"}
 	for _, service := range services {
-		if _, addrs, err := net.LookupSRV("", "", service+"."+hostname); err == nil {
+		fullService := service + "." + hostname
+		log.Printf("[DEBUG] Looking up SRV records for %s", fullService)
+		if _, addrs, err := resolver.LookupSRV(ctx, "", "", fullService); err == nil {
 			for _, addr := range addrs {
-				results.SRVRecords = append(results.SRVRecords,
-					fmt.Sprintf("%s.%s:%d %d %d",
-						service, hostname, addr.Port, addr.Priority, addr.Weight))
+				record := fmt.Sprintf("Service: %s | Target: %s | Port: %d | Priority: %d | Weight: %d",
+					service,
+					strings.TrimSuffix(addr.Target, "."),
+					addr.Port,
+					addr.Priority,
+					addr.Weight)
+				results.SRVRecords = append(results.SRVRecords, record)
+				log.Printf("[DEBUG] Found SRV record: %s", record)
 			}
+		} else if err != nil && !strings.Contains(err.Error(), "no such host") {
+			log.Printf("[DEBUG] SRV lookup failed for %s: %v", fullService, err)
 		}
 	}
+
+	// Deduplicate all record types
+	dedup := func(slice []string) []string {
+		seen := make(map[string]bool)
+		result := []string{}
+		for _, item := range slice {
+			if !seen[item] {
+				seen[item] = true
+				result = append(result, item)
+			}
+		}
+		return result
+	}
+
+	results.ARecords = dedup(results.ARecords)
+	results.AAAARecords = dedup(results.AAAARecords)
+	results.CNAMERecords = dedup(results.CNAMERecords)
+	results.MXRecords = dedup(results.MXRecords)
+	results.TXTRecords = dedup(results.TXTRecords)
+	results.NSRecords = dedup(results.NSRecords)
+	results.PTRRecords = dedup(results.PTRRecords)
+	results.SRVRecords = dedup(results.SRVRecords)
+
+	log.Printf("[DEBUG] Final DNS records for %s:", hostname)
+	log.Printf("[DEBUG]   A Records: %d", len(results.ARecords))
+	log.Printf("[DEBUG]   AAAA Records: %d", len(results.AAAARecords))
+	log.Printf("[DEBUG]   CNAME Records: %d", len(results.CNAMERecords))
+	log.Printf("[DEBUG]   MX Records: %d", len(results.MXRecords))
+	log.Printf("[DEBUG]   TXT Records: %d", len(results.TXTRecords))
+	log.Printf("[DEBUG]   NS Records: %d", len(results.NSRecords))
+	log.Printf("[DEBUG]   PTR Records: %d", len(results.PTRRecords))
+	log.Printf("[DEBUG]   SRV Records: %d", len(results.SRVRecords))
 
 	return results
 }
