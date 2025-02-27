@@ -302,7 +302,8 @@ func createTables() {
 			dns_ns_records TEXT[],
 			dns_ptr_records TEXT[],
 			dns_srv_records TEXT[],
-			katana_results JSONB
+			katana_results JSONB,
+			ffuf_results JSONB
 		);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
@@ -349,6 +350,15 @@ func createTables() {
 				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS katana_results JSONB;
 			EXCEPTION WHEN duplicate_column THEN 
 				RAISE NOTICE 'Column katana_results already exists in target_urls.';
+			END;
+		END $$;`,
+
+		`DO $$ 
+		BEGIN 
+			BEGIN
+				ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS ffuf_results JSONB;
+			EXCEPTION WHEN duplicate_column THEN 
+				RAISE NOTICE 'Column ffuf_results already exists in target_urls.';
 			END;
 		END $$;`,
 	}

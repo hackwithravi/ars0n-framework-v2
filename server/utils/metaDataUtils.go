@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,6 +47,21 @@ type DNSResults struct {
 	NSRecords    []string
 	PTRRecords   []string
 	SRVRecords   []string
+}
+
+type FfufResult struct {
+	Input struct {
+		FUZZ string `json:"FUZZ"`
+	} `json:"input"`
+	Position         int    `json:"position"`
+	Status           int    `json:"status"`
+	Length           int    `json:"length"`
+	Words            int    `json:"words"`
+	Lines            int    `json:"lines"`
+	ContentType      string `json:"content-type"`
+	RedirectLocation string `json:"redirectlocation"`
+	Url              string `json:"url"`
+	Duration         int64  `json:"duration"`
 }
 
 func NormalizeURL(url string) string {
@@ -477,7 +493,16 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 		return
 	}
 
-	// Update final scan status after both scans complete successfully
+	// Run ffuf scan for each URL
+	log.Printf("[INFO] Starting ffuf scans for all URLs")
+	for baseURL := range katanaResults {
+		if err := ExecuteFfufScan(baseURL, scopeTargetID); err != nil {
+			log.Printf("[ERROR] Failed to run ffuf scan for URL %s: %v", baseURL, err)
+			continue
+		}
+	}
+
+	// Update final scan status after all scans complete successfully
 	UpdateMetaDataScanStatus(
 		scanID,
 		"success",
@@ -487,7 +512,7 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 		time.Since(startTime).String(),
 	)
 
-	log.Printf("[INFO] Both SSL and tech scans completed successfully for scan ID: %s", scanID)
+	log.Printf("[INFO] All scans completed successfully for scan ID: %s", scanID)
 }
 
 func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
@@ -711,66 +736,24 @@ func PerformDNSLookups(hostname string) DNSResults {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// First, try to get DNS records from latest Amass scan
-	var amassResult string
-	err := dbPool.QueryRow(context.Background(), `
-		SELECT result
-		FROM amass_scans 
-		WHERE status = 'success' 
-		AND result::jsonb ? 'dns_records'
-		ORDER BY created_at DESC 
-		LIMIT 1`).Scan(&amassResult)
-
-	if err == nil && amassResult != "" {
-		var amassData struct {
-			DNSRecords struct {
-				A     []string `json:"a"`
-				AAAA  []string `json:"aaaa"`
-				CNAME []string `json:"cname"`
-				MX    []string `json:"mx"`
-				TXT   []string `json:"txt"`
-				NS    []string `json:"ns"`
-				PTR   []string `json:"ptr"`
-				SRV   []string `json:"srv"`
-			} `json:"dns_records"`
-		}
-
-		if err := json.Unmarshal([]byte(amassResult), &amassData); err == nil {
-			log.Printf("[DEBUG] Found Amass DNS records for %s:", hostname)
-			log.Printf("[DEBUG]   A Records: %d", len(amassData.DNSRecords.A))
-			log.Printf("[DEBUG]   AAAA Records: %d", len(amassData.DNSRecords.AAAA))
-			log.Printf("[DEBUG]   CNAME Records: %d", len(amassData.DNSRecords.CNAME))
-			log.Printf("[DEBUG]   MX Records: %d", len(amassData.DNSRecords.MX))
-			log.Printf("[DEBUG]   TXT Records: %d", len(amassData.DNSRecords.TXT))
-			log.Printf("[DEBUG]   NS Records: %d", len(amassData.DNSRecords.NS))
-			log.Printf("[DEBUG]   PTR Records: %d", len(amassData.DNSRecords.PTR))
-			log.Printf("[DEBUG]   SRV Records: %d", len(amassData.DNSRecords.SRV))
-
-			results.ARecords = append(results.ARecords, amassData.DNSRecords.A...)
-			results.AAAARecords = append(results.AAAARecords, amassData.DNSRecords.AAAA...)
-			results.CNAMERecords = append(results.CNAMERecords, amassData.DNSRecords.CNAME...)
-			results.MXRecords = append(results.MXRecords, amassData.DNSRecords.MX...)
-			results.TXTRecords = append(results.TXTRecords, amassData.DNSRecords.TXT...)
-			results.NSRecords = append(results.NSRecords, amassData.DNSRecords.NS...)
-			results.PTRRecords = append(results.PTRRecords, amassData.DNSRecords.PTR...)
-			results.SRVRecords = append(results.SRVRecords, amassData.DNSRecords.SRV...)
-		}
-	} else if err != pgx.ErrNoRows {
-		log.Printf("[DEBUG] Error fetching Amass DNS records: %v", err)
-	}
-
 	// Create a custom resolver with shorter timeout
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{
-				Timeout: 5 * time.Second,
+				Timeout: 500 * time.Millisecond,
 			}
+			// Try Docker's internal DNS first
+			conn, err := d.DialContext(ctx, network, "127.0.0.11:53")
+			if err == nil {
+				return conn, nil
+			}
+			// Fall back to Google DNS only
 			return d.DialContext(ctx, network, "8.8.8.8:53")
 		},
 	}
 
-	// A and AAAA records with error logging
+	// A and AAAA records
 	log.Printf("[DEBUG] Looking up A/AAAA records for %s", hostname)
 	if ips, err := resolver.LookupIPAddr(ctx, hostname); err == nil {
 		for _, ip := range ips {
@@ -782,11 +765,9 @@ func PerformDNSLookups(hostname string) DNSResults {
 				log.Printf("[DEBUG] Found AAAA record: %s", ip.IP.String())
 			}
 		}
-	} else {
-		log.Printf("[DEBUG] A/AAAA lookup failed for %s: %v", hostname, err)
 	}
 
-	// CNAME lookup with better error handling
+	// CNAME lookup
 	log.Printf("[DEBUG] Looking up CNAME records for %s", hostname)
 	if cname, err := resolver.LookupCNAME(ctx, hostname); err == nil && cname != "" {
 		cname = strings.TrimSuffix(cname, ".")
@@ -795,11 +776,9 @@ func PerformDNSLookups(hostname string) DNSResults {
 			results.CNAMERecords = append(results.CNAMERecords, record)
 			log.Printf("[DEBUG] Found CNAME record: %s", record)
 		}
-	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-		log.Printf("[DEBUG] CNAME lookup failed for %s: %v", hostname, err)
 	}
 
-	// MX lookup with improved formatting
+	// MX lookup
 	log.Printf("[DEBUG] Looking up MX records for %s", hostname)
 	if mxRecords, err := resolver.LookupMX(ctx, hostname); err == nil {
 		for _, mx := range mxRecords {
@@ -807,22 +786,18 @@ func PerformDNSLookups(hostname string) DNSResults {
 			results.MXRecords = append(results.MXRecords, record)
 			log.Printf("[DEBUG] Found MX record: %s", record)
 		}
-	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-		log.Printf("[DEBUG] MX lookup failed for %s: %v", hostname, err)
 	}
 
-	// TXT lookup with error handling
+	// TXT lookup
 	log.Printf("[DEBUG] Looking up TXT records for %s", hostname)
 	if txtRecords, err := resolver.LookupTXT(ctx, hostname); err == nil {
 		for _, txt := range txtRecords {
 			results.TXTRecords = append(results.TXTRecords, txt)
 			log.Printf("[DEBUG] Found TXT record: %s", txt)
 		}
-	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-		log.Printf("[DEBUG] TXT lookup failed for %s: %v", hostname, err)
 	}
 
-	// NS lookup with error handling
+	// NS lookup
 	log.Printf("[DEBUG] Looking up NS records for %s", hostname)
 	if nsRecords, err := resolver.LookupNS(ctx, hostname); err == nil {
 		for _, ns := range nsRecords {
@@ -830,8 +805,6 @@ func PerformDNSLookups(hostname string) DNSResults {
 			results.NSRecords = append(results.NSRecords, record)
 			log.Printf("[DEBUG] Found NS record: %s", record)
 		}
-	} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-		log.Printf("[DEBUG] NS lookup failed for %s: %v", hostname, err)
 	}
 
 	// PTR lookup for both IPv4 and IPv6
@@ -843,8 +816,6 @@ func PerformDNSLookups(hostname string) DNSResults {
 				results.PTRRecords = append(results.PTRRecords, record)
 				log.Printf("[DEBUG] Found PTR record: %s", record)
 			}
-		} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-			log.Printf("[DEBUG] PTR lookup failed for %s: %v", ip, err)
 		}
 	}
 
@@ -856,7 +827,7 @@ func PerformDNSLookups(hostname string) DNSResults {
 		lookupPTR(ip)
 	}
 
-	// SRV lookup with improved formatting and error handling
+	// SRV lookup
 	services := []string{"_http._tcp", "_https._tcp", "_ldap._tcp", "_kerberos._tcp"}
 	for _, service := range services {
 		fullService := service + "." + hostname
@@ -872,8 +843,6 @@ func PerformDNSLookups(hostname string) DNSResults {
 				results.SRVRecords = append(results.SRVRecords, record)
 				log.Printf("[DEBUG] Found SRV record: %s", record)
 			}
-		} else if err != nil && !strings.Contains(err.Error(), "no such host") {
-			log.Printf("[DEBUG] SRV lookup failed for %s: %v", fullService, err)
 		}
 	}
 
@@ -910,6 +879,16 @@ func PerformDNSLookups(hostname string) DNSResults {
 	log.Printf("[DEBUG]   SRV Records: %d", len(results.SRVRecords))
 
 	return results
+}
+
+func extractDNSRecord(line string) string {
+	parts := strings.Fields(line)
+	for _, part := range parts {
+		if strings.Contains(part, ".") && !strings.Contains(part, "(") && !strings.Contains(part, ")") {
+			return part
+		}
+	}
+	return ""
 }
 
 func UpdateMetaDataScanStatus(scanID, status, result, stderr, command, execTime string) {
@@ -1044,4 +1023,159 @@ func GanitizeResponse(input []byte) string {
 	}, str)
 
 	return str
+}
+
+func ExecuteFfufScan(url string, scopeTargetID string) error {
+	log.Printf("[INFO] Starting ffuf scan for URL: %s", url)
+	startTime := time.Now()
+
+	// Create a temporary directory for output
+	tempDir := filepath.Join("/tmp", fmt.Sprintf("ffuf-%s", uuid.New().String()))
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Copy wordlist to container
+	copyCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"cp",
+		"/wordlists/ffuf-wordlist-5000.txt",
+		"/wordlist.txt",
+	)
+
+	var copyStderr bytes.Buffer
+	copyCmd.Stderr = &copyStderr
+	if err := copyCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to copy wordlist in container. Command: %s, Error: %v, Stderr: %s",
+			copyCmd.String(), err, copyStderr.String())
+		return fmt.Errorf("failed to copy wordlist in container: %v (stderr: %s)", err, copyStderr.String())
+	}
+	log.Printf("[DEBUG] Successfully copied wordlist in container")
+
+	// Verify wordlist exists in container
+	checkCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"ls", "-l", "/wordlist.txt",
+	)
+	if out, err := checkCmd.CombinedOutput(); err != nil {
+		log.Printf("[ERROR] Wordlist not found in container. Output: %s, Error: %v", string(out), err)
+		return fmt.Errorf("wordlist not found in container: %v", err)
+	} else {
+		log.Printf("[DEBUG] Wordlist verified in container: %s", string(out))
+	}
+
+	// Prepare output file path
+	outputFile := filepath.Join(tempDir, "ffuf-output.json")
+
+	// Run ffuf scan
+	targetURL := fmt.Sprintf("%s/FUZZ", url)
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"ffuf",
+		"-w", "/wordlist.txt",
+		"-u", targetURL,
+		"-mc", "all",
+		"-o", "/output.json",
+		"-of", "json",
+		"-ac",
+		"-c",
+		"-r",
+		"-t", "50",
+	)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	log.Printf("[DEBUG] Running ffuf command: %s", cmd.String())
+	if err := cmd.Run(); err != nil {
+		log.Printf("[ERROR] ffuf scan failed: %v\nStderr: %s", err, stderr.String())
+		return fmt.Errorf("ffuf scan failed: %v", err)
+	}
+	log.Printf("[DEBUG] ffuf scan completed successfully")
+
+	// Verify output file exists in container
+	checkOutputCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"ls", "-l", "/output.json",
+	)
+	if out, err := checkOutputCmd.CombinedOutput(); err != nil {
+		log.Printf("[ERROR] Output file not found in container. Output: %s, Error: %v", string(out), err)
+		return fmt.Errorf("output file not found in container: %v", err)
+	} else {
+		log.Printf("[DEBUG] Output file verified in container: %s", string(out))
+	}
+
+	// Copy results from container
+	copyResultsCmd := exec.Command(
+		"docker", "cp",
+		"ars0n-framework-v2-ffuf-1:/output.json",
+		outputFile,
+	)
+	var copyResultsStderr bytes.Buffer
+	copyResultsCmd.Stderr = &copyResultsStderr
+	if err := copyResultsCmd.Run(); err != nil {
+		log.Printf("[ERROR] Failed to copy results from container. Command: %s, Error: %v, Stderr: %s",
+			copyResultsCmd.String(), err, copyResultsStderr.String())
+		return fmt.Errorf("failed to copy results from container: %v (stderr: %s)", err, copyResultsStderr.String())
+	}
+	log.Printf("[DEBUG] Successfully copied results from container")
+
+	// Read and parse results
+	resultBytes, err := os.ReadFile(outputFile)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read ffuf results file at %s: %v", outputFile, err)
+		return fmt.Errorf("failed to read ffuf results: %v", err)
+	}
+	log.Printf("[DEBUG] Read %d bytes from results file", len(resultBytes))
+
+	var results struct {
+		Results []FfufResult `json:"results"`
+	}
+	if err := json.Unmarshal(resultBytes, &results); err != nil {
+		log.Printf("[ERROR] Failed to parse ffuf results JSON: %v\nContent: %s", err, string(resultBytes))
+		return fmt.Errorf("failed to parse ffuf results: %v", err)
+	}
+	log.Printf("[DEBUG] Successfully parsed %d results from JSON", len(results.Results))
+
+	// Filter and format results
+	var endpoints []map[string]interface{}
+	for _, result := range results.Results {
+		endpoint := map[string]interface{}{
+			"path":   result.Input.FUZZ,
+			"status": result.Status,
+			"size":   result.Length,
+			"words":  result.Words,
+			"lines":  result.Lines,
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+
+	// Store results in database
+	ffufResults := map[string]interface{}{
+		"endpoints": endpoints,
+	}
+	ffufResultsJSON, err := json.Marshal(ffufResults)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal ffuf results to JSON: %v", err)
+		return fmt.Errorf("failed to marshal ffuf results: %v", err)
+	}
+
+	_, err = dbPool.Exec(context.Background(),
+		`UPDATE target_urls 
+		 SET ffuf_results = $1::jsonb 
+		 WHERE url = $2 AND scope_target_id = $3`,
+		string(ffufResultsJSON), url, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to store ffuf results in database: %v", err)
+		return fmt.Errorf("failed to store ffuf results: %v", err)
+	}
+
+	log.Printf("[INFO] Successfully completed ffuf scan for %s in %s. Found %d endpoints.",
+		url, time.Since(startTime), len(endpoints))
+	return nil
 }

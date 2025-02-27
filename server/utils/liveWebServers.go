@@ -71,6 +71,7 @@ type TargetURL struct {
 	DNSPTRRecords       []string       `json:"dns_ptr_records"`
 	DNSSRVRecords       []string       `json:"dns_srv_records"`
 	KatanaResults       []byte         `json:"katana_results"`
+	FfufResults         []byte         `json:"ffuf_results"`
 }
 
 type TargetURLResponse struct {
@@ -106,6 +107,7 @@ type TargetURLResponse struct {
 	DNSPTRRecords       []string               `json:"dns_ptr_records"`
 	DNSSRVRecords       []string               `json:"dns_srv_records"`
 	KatanaResults       []string               `json:"katana_results"`
+	FfufResults         map[string]interface{} `json:"ffuf_results"`
 }
 
 // RunHttpxScan handles the HTTP request to start a new httpx scan
@@ -894,7 +896,7 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			   has_wildcard_tls, findings_json, http_response, http_response_headers,
 			   dns_a_records, dns_aaaa_records, dns_cname_records,
 			   dns_mx_records, dns_txt_records, dns_ns_records,
-			   dns_ptr_records, dns_srv_records, katana_results
+			   dns_ptr_records, dns_srv_records, katana_results, ffuf_results
 		FROM target_urls 
 		WHERE scope_target_id = $1 
 		ORDER BY created_at DESC`
@@ -943,6 +945,7 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			&targetURL.DNSPTRRecords,
 			&targetURL.DNSSRVRecords,
 			&targetURL.KatanaResults,
+			&targetURL.FfufResults,
 		)
 		if err != nil {
 			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
@@ -982,6 +985,17 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			httpResponseHeaders = make(map[string]interface{})
 		}
 
+		// Parse ffuf_results into a map
+		var ffufResults map[string]interface{}
+		if len(targetURL.FfufResults) > 0 {
+			if err := json.Unmarshal(targetURL.FfufResults, &ffufResults); err != nil {
+				log.Printf("[WARN] Failed to unmarshal ffuf results for URL %s: %v", targetURL.URL, err)
+				ffufResults = make(map[string]interface{})
+			}
+		} else {
+			ffufResults = make(map[string]interface{})
+		}
+
 		response := TargetURLResponse{
 			ID:                  targetURL.ID,
 			URL:                 targetURL.URL,
@@ -1015,6 +1029,7 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			DNSPTRRecords:       targetURL.DNSPTRRecords,
 			DNSSRVRecords:       targetURL.DNSSRVRecords,
 			KatanaResults:       katanaResults,
+			FfufResults:         ffufResults,
 		}
 		targetURLs = append(targetURLs, response)
 	}

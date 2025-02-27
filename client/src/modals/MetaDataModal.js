@@ -10,6 +10,7 @@ const MetaDataModal = ({
 
   useEffect(() => {
     const handleMetadataScanComplete = (event) => {
+      console.log('Metadata scan complete event received:', event.detail);
       setTargetURLs(event.detail);
     };
 
@@ -31,6 +32,7 @@ const MetaDataModal = ({
   };
 
   const urls = Array.isArray(targetURLs) ? targetURLs : [];
+  console.log('Rendering MetaDataModal with URLs:', urls);
 
   const getSafeValue = (value) => {
     if (!value) return '';
@@ -58,6 +60,8 @@ const MetaDataModal = ({
               </div>
             ) : (
               urls.map((url, urlIndex) => {
+                console.log(`Processing URL ${urlIndex}:`, url);
+                console.log('ffuf_results for this URL:', url.ffuf_results);
                 const sslIssues = [];
                 if (url.has_deprecated_tls) sslIssues.push('Deprecated TLS');
                 if (url.has_expired_ssl) sslIssues.push('Expired SSL');
@@ -91,6 +95,13 @@ const MetaDataModal = ({
                             style={{ fontSize: '0.8em' }}
                           >
                             {katanaUrls.length} Crawled URLs
+                          </Badge>
+                          <Badge 
+                            bg="dark" 
+                            className="text-white"
+                            style={{ fontSize: '0.8em' }}
+                          >
+                            {url.ffuf_results?.endpoints?.length || 0} Endpoints
                           </Badge>
                           {findings.length > 0 && (
                             <Badge 
@@ -293,6 +304,76 @@ const MetaDataModal = ({
                                 ) : (
                                   <div className="text-muted text-center py-3">
                                     No URLs were discovered during crawling
+                                  </div>
+                                )}
+                              </Accordion.Body>
+                            </Accordion.Item>
+                          </Accordion>
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <h6 className="text-danger mb-3">Discovered Endpoints</h6>
+                        <div className="ms-3">
+                          <Accordion>
+                            <Accordion.Item eventKey="0">
+                              <Accordion.Header>
+                                <div className="d-flex align-items-center justify-content-between w-100">
+                                  <div>
+                                    <span className="text-white">
+                                      Ffuf Results
+                                    </span>
+                                    <br/>
+                                    <small className="text-muted">Endpoints discovered through fuzzing</small>
+                                  </div>
+                                  <Badge 
+                                    bg={url.ffuf_results?.endpoints?.length > 0 ? "dark" : "secondary"}
+                                    className="ms-2 text-white"
+                                    style={{ fontSize: '0.8em' }}
+                                  >
+                                    {url.ffuf_results?.endpoints?.length || 0} Endpoints
+                                  </Badge>
+                                </div>
+                              </Accordion.Header>
+                              <Accordion.Body>
+                                {url.ffuf_results?.endpoints?.length > 0 ? (
+                                  <div 
+                                    className="bg-dark p-3 rounded font-monospace" 
+                                    style={{ 
+                                      maxHeight: '300px', 
+                                      overflowY: 'auto',
+                                      fontSize: '0.85em'
+                                    }}
+                                  >
+                                    {url.ffuf_results?.endpoints?.map((endpoint, index) => (
+                                      <div key={index} className="mb-2 d-flex align-items-center">
+                                        <Badge 
+                                          bg={getStatusCodeColor(endpoint.status).bg}
+                                          className={`me-2 text-${getStatusCodeColor(endpoint.status).text}`}
+                                          style={{ fontSize: '0.8em', minWidth: '3em' }}
+                                        >
+                                          {endpoint.status}
+                                        </Badge>
+                                        <span style={{ wordBreak: 'break-all' }}>
+                                          <a 
+                                            href={`${url.url}/${endpoint.path}`} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer" 
+                                            className="text-info text-decoration-none"
+                                          >
+                                            /{endpoint.path}
+                                          </a>
+                                          <span className="ms-2 text-muted">
+                                            <small>
+                                              ({endpoint.size} bytes, {endpoint.words} words, {endpoint.lines} lines)
+                                            </small>
+                                          </span>
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-muted text-center py-3">
+                                    No endpoints were discovered during fuzzing
                                   </div>
                                 )}
                               </Accordion.Body>
