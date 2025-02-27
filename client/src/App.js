@@ -33,7 +33,6 @@ import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
   getTypeIcon,
-  getModeIcon,
   getLastScanDate,
   getLatestScanStatus,
   getLatestScanTime,
@@ -95,7 +94,6 @@ function App() {
   const [showActiveModal, setShowActiveModal] = useState(false);
   const [selections, setSelections] = useState({
     type: '',
-    mode: '',
     inputText: '',
   });
   const [scopeTargets, setScopeTargets] = useState([]);
@@ -505,44 +503,48 @@ function App() {
   };
 
   const handleOpen = () => {
-    setSelections({ type: '', mode: '', inputText: '' });
+    setSelections({ type: '', inputText: '' });
     setShowModal(true);
   };
 
   const handleSubmit = async () => {
-    if (!validateInput(selections, setErrorMessage)) {
-      return;
-    }
+    if (selections.type && selections.inputText) {
+      const isValid = validateInput(selections.type, selections.inputText);
+      if (!isValid.valid) {
+        setErrorMessage(isValid.message);
+        return;
+      }
 
-    if (selections.type === 'Wildcard' && !selections.inputText.startsWith('*.')) {
-      setSelections((prev) => ({ ...prev, inputText: `*.${prev.inputText}` }));
-    }
-
-    if (selections.type && selections.mode && selections.inputText) {
       try {
-        const response = await fetch(`${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/add`, {
+        const response = await fetch('http://localhost:8080/scopetarget/add', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({
             type: selections.type,
-            mode: selections.mode,
+            mode: 'Passive',
             scope_target: selections.inputText,
+            active: false,
           }),
         });
 
         if (!response.ok) {
-          throw new Error('Failed to add scope target');
+          throw new Error('Network response was not ok');
         }
 
-        setSelections({ type: '', mode: '', inputText: '' });
-        setShowModal(false);
-        fetchScopeTargets();
+        await fetchScopeTargets();
+        handleClose();
+        setSelections({
+          type: '',
+          inputText: '',
+        });
       } catch (error) {
-        console.error('Error adding scope target:', error);
-        setErrorMessage('Failed to add scope target');
+        console.error('Error:', error);
+        setErrorMessage('Failed to save scope target');
       }
     } else {
-      setErrorMessage('You forgot something...');
+      setErrorMessage('Please fill in all fields');
     }
   };
 
@@ -1185,7 +1187,6 @@ function App() {
           activeTarget={activeTarget}
           scopeTargets={scopeTargets}
           getTypeIcon={getTypeIcon}
-          getModeIcon={getModeIcon}
         />
       </Fade>
 

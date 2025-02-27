@@ -12,8 +12,8 @@ func createTables() {
 		`DROP TABLE IF EXISTS requests CASCADE;`,
 		`CREATE TABLE IF NOT EXISTS scope_targets (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			type VARCHAR(50) NOT NULL,
-			mode VARCHAR(50) NOT NULL,
+			type VARCHAR(50) NOT NULL CHECK (type IN ('Company', 'Wildcard', 'URL')),
+			mode VARCHAR(50) NOT NULL CHECK (mode IN ('Passive', 'Active')),
 			scope_target TEXT NOT NULL,
 			active BOOLEAN DEFAULT false,
 			created_at TIMESTAMP DEFAULT NOW()

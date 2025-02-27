@@ -1,6 +1,4 @@
-const getTypeIcon = (type) => `/images/${type}.png`;
-
-const getModeIcon = (mode) => `/images/${mode}.png`;
+const getTypeIcon = (type) => `/images/${type.charAt(0).toUpperCase() + type.slice(1)}.png`;
 
 const getExecutionTime = (execution_time) => {
     try {
@@ -68,4 +66,4 @@ const copyToClipboard = async (text) => {
   }
 };
 
-export { getTypeIcon, getModeIcon, getLastScanDate, getLatestScanStatus, getLatestScanTime, getLatestScanId, getExecutionTime, getResultLength, copyToClipboard };
+export { getTypeIcon, getLastScanDate, getLatestScanStatus, getLatestScanTime, getLatestScanId, getExecutionTime, getResultLength, copyToClipboard };

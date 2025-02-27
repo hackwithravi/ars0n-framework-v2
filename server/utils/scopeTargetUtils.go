@@ -23,7 +23,6 @@ type RequestPayload struct {
 type ResponsePayload struct {
 	ID          string `json:"id"`
 	Type        string `json:"type"`
-	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
 	Active      bool   `json:"active"`
 }
@@ -66,7 +65,7 @@ func CreateScopeTarget(w http.ResponseWriter, r *http.Request) {
 
 // ReadScopeTarget retrieves all scope targets
 func ReadScopeTarget(w http.ResponseWriter, r *http.Request) {
-	rows, err := dbPool.Query(context.Background(), `SELECT id, type, mode, scope_target, active FROM scope_targets`)
+	rows, err := dbPool.Query(context.Background(), `SELECT id, type, scope_target, active FROM scope_targets`)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -77,7 +76,7 @@ func ReadScopeTarget(w http.ResponseWriter, r *http.Request) {
 	var results []ResponsePayload
 	for rows.Next() {
 		var res ResponsePayload
-		if err := rows.Scan(&res.ID, &res.Type, &res.Mode, &res.ScopeTarget, &res.Active); err != nil {
+		if err := rows.Scan(&res.ID, &res.Type, &res.ScopeTarget, &res.Active); err != nil {
 			log.Printf("Error scanning row: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return

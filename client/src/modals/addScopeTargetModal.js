@@ -25,7 +25,7 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
       case 'URL':
         return 'Example: https://hackme.google.com';
       default:
-        return 'Google, *.google.com, https://hackme.google.com';
+        return 'Choose your scope target...';
     }
   };
 
@@ -35,8 +35,23 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
     }
   };
 
-  const isDisabledType = (type) => ['Company', 'URL'].includes(type);
-  const isDisabledMode = (mode) => ['Automated', 'Hybrid'].includes(mode);
+  const targetTypes = [
+    {
+      type: 'Company',
+      description: 'Any asset owned by an organization',
+      disabled: true
+    },
+    {
+      type: 'Wildcard',
+      description: 'Any subdomain under the root domain',
+      disabled: false
+    },
+    {
+      type: 'URL',
+      description: 'Any attack vector targeting a single domain',
+      disabled: true
+    }
+  ];
 
   return (
     <Modal
@@ -56,7 +71,7 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
           style={{ width: '100px', height: '100px', marginBottom: '10px' }}
           centered
         />
-        <div style={{ minHeight: '24px' }}>
+        <div>
           {errorMessage && (
             <p className="text-danger m-0" style={{ fontSize: '0.9rem' }}>
               {errorMessage}
@@ -68,53 +83,27 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
         </Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        <Row>
-          {['Company', 'Wildcard', 'URL'].map((type) => (
-            <Col key={type}>
+        <Row className="g-3 mb-3">
+          {targetTypes.map((target) => (
+            <Col xs={12} key={target.type}>
               <Card
-                className={`mb-3 h-200 text-center ${selections.type === type ? 'border-danger' : ''}`}
-                onClick={() => !isDisabledType(type) && handleSelect('type', type)}
+                className={`h-100 ${selections.type === target.type ? 'border-danger' : ''}`}
+                onClick={() => !target.disabled && handleSelect('type', target.type)}
                 style={{ 
-                  cursor: isDisabledType(type) ? 'not-allowed' : 'pointer',
-                  opacity: isDisabledType(type) ? 0.5 : 1,
-                  pointerEvents: isDisabledType(type) ? 'none' : 'auto'
+                  cursor: target.disabled ? 'not-allowed' : 'pointer',
+                  opacity: target.disabled ? 0.5 : 1
                 }}
               >
-                <Card.Body>
+                <Card.Body className="d-flex align-items-center">
                   <img
-                    src={`/images/${type}.png`}
-                    alt="Logo"
-                    style={{ width: '50px', height: '50px', marginBottom: '10px' }}
-                    centered
+                    src={`/images/${target.type}.png`}
+                    alt={target.type}
+                    style={{ width: '50px', height: '50px', marginRight: '15px' }}
                   />
-                  <br />
-                  {type}
-                </Card.Body>
-              </Card>
-            </Col>
-          ))}
-        </Row>
-        <Row>
-          {['Guided', 'Automated', 'Hybrid'].map((mode) => (
-            <Col key={mode}>
-              <Card
-                className={`mb-3 h-200 text-center ${selections.mode === mode ? 'border-danger' : ''}`}
-                onClick={() => !isDisabledMode(mode) && handleSelect('mode', mode)}
-                style={{ 
-                  cursor: isDisabledMode(mode) ? 'not-allowed' : 'pointer',
-                  opacity: isDisabledMode(mode) ? 0.5 : 1,
-                  pointerEvents: isDisabledMode(mode) ? 'none' : 'auto'
-                }}
-              >
-                <Card.Body>
-                  <img
-                    src={`/images/${mode}.png`}
-                    alt="Logo"
-                    style={{ width: '50px', height: '50px', marginBottom: '10px' }}
-                    centered
-                  />
-                  <br />
-                  {mode}
+                  <div>
+                    <h5 className="mb-1">{target.type}</h5>
+                    <p className="mb-0 text-muted small">{target.description}</p>
+                  </div>
                 </Card.Body>
               </Card>
             </Col>

@@ -5,8 +5,7 @@ function ManageScopeTargets({
   handleActiveModalOpen, 
   activeTarget, 
   scopeTargets, 
-  getTypeIcon, 
-  getModeIcon 
+  getTypeIcon
 }) {
   return (
     <>
@@ -33,8 +32,7 @@ function ManageScopeTargets({
                     Active Target: <strong>{activeTarget.scope_target}</strong>
                   </span>
                   <span>
-                    <img src={getTypeIcon(activeTarget.type)} alt={activeTarget.type} style={{ width: '30px', marginRight: '25px' }} />
-                    <img src={getModeIcon(activeTarget.mode)} alt={activeTarget.mode} style={{ width: '30px' }} />
+                    <img src={getTypeIcon(activeTarget.type)} alt={activeTarget.type} style={{ width: '30px' }} />
                   </span>
                 </Card.Text>
               </Card.Body>

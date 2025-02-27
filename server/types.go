@@ -44,7 +44,6 @@ type CloudDomain struct {
 
 type RequestPayload struct {
 	Type        string `json:"type"`
-	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
 	Active      bool   `json:"active"`
 }
@@ -52,7 +51,6 @@ type RequestPayload struct {
 type ResponsePayload struct {
 	ID          string `json:"id"`
 	Type        string `json:"type"`
-	Mode        string `json:"mode"`
 	ScopeTarget string `json:"scope_target"`
 	Active      bool   `json:"active"`
 }
