@@ -28,6 +28,12 @@ const ScreenshotResultsModal = ({
           throw new Error('Failed to fetch target URLs');
         }
         const data = await response.json();
+        console.log('[DEBUG] Received target URLs:', data);
+        console.log('[DEBUG] First URL screenshot present:', data[0]?.screenshot ? 'yes' : 'no');
+        if (data[0]?.screenshot) {
+          console.log('[DEBUG] First URL screenshot type:', typeof data[0].screenshot);
+          console.log('[DEBUG] First URL screenshot value:', data[0].screenshot);
+        }
         const sortedData = data.sort((a, b) => {
           if (!a.status_code && !b.status_code) return 0;
           if (!a.status_code) return 1;
@@ -125,7 +131,7 @@ const ScreenshotResultsModal = ({
                   )}
                 </div>
               </div>
-              {getNullStringValue(targetURL.screenshot) && (
+              {targetURL.screenshot && (
                 <div 
                   style={{ 
                     height: expandedIndex === index ? '500px' : '150px',
@@ -135,8 +141,9 @@ const ScreenshotResultsModal = ({
                     transition: 'height 0.3s ease-in-out'
                   }}
                 >
+                  {console.log('[DEBUG] Screenshot data:', targetURL.screenshot)}
                   <img 
-                    src={`data:image/png;base64,${getNullStringValue(targetURL.screenshot)}`} 
+                    src={`data:image/png;base64,${targetURL.screenshot}`} 
                     alt={`Screenshot of ${targetURL.url}`}
                     style={{ 
                       width: '100%',

@@ -72,15 +72,44 @@ const calculateROIScore = (targetURL) => {
 };
 
 const TargetSection = ({ targetURL, roiScore }) => {
-  const httpResponse = targetURL.http_response?.String || '';
+  console.log('[DEBUG] ROI Report - Target URL:', targetURL);
+
+  // Process HTTP response
+  let httpResponse = '';
+  try {
+    if (targetURL.http_response) {
+      if (typeof targetURL.http_response === 'string') {
+        httpResponse = targetURL.http_response;
+      } else if (targetURL.http_response.String) {
+        httpResponse = targetURL.http_response.String;
+      }
+    }
+  } catch (error) {
+    console.error('Error processing HTTP response:', error);
+  }
   const truncatedResponse = httpResponse.split('\n').slice(0, 25).join('\n');
+
+  // Process HTTP headers
   let httpHeaders = {};
   try {
-    httpHeaders = targetURL.http_response_headers ? JSON.parse(targetURL.http_response_headers) : {};
-  } catch {
-    httpHeaders = {};
+    if (targetURL.http_response_headers) {
+      if (typeof targetURL.http_response_headers === 'string') {
+        httpHeaders = JSON.parse(targetURL.http_response_headers);
+      } else {
+        httpHeaders = targetURL.http_response_headers;
+      }
+    }
+  } catch (error) {
+    console.error('Error processing HTTP headers:', error);
   }
-  
+
+  // Process title and web server
+  const title = targetURL.title || '';
+  const webServer = targetURL.web_server || '';
+
+  // Process technologies
+  const technologies = Array.isArray(targetURL.technologies) ? targetURL.technologies : [];
+
   // Handle katana results - could be string, array, or JSON string
   let katanaResults = 0;
   if (targetURL.katana_results) {
@@ -164,40 +193,41 @@ const TargetSection = ({ targetURL, roiScore }) => {
           <Card className="bg-dark border-danger">
             <Card.Body>
               <div className="d-flex justify-content-between align-items-center mb-4">
-                <h3 className="text-danger mb-0">Target Assessment</h3>
-                <div className="text-center">
-                  <div className="display-4 text-danger">{displayScore}</div>
-                  <small className="text-muted">Potential ROI Score</small>
+                <div className="d-flex align-items-center">
+                  <div className="display-4 text-danger me-3">{displayScore}</div>
+                  <div className="h3 mb-0 text-white">{targetURL.url}</div>
                 </div>
               </div>
               <Table className="table-dark">
                 <tbody>
                   <tr>
-                    <td className="fw-bold">Target URL:</td>
-                    <td>{targetURL.url}</td>
-                  </tr>
-                  <tr>
                     <td className="fw-bold">Response Code:</td>
-                    <td>{targetURL.status_code}</td>
+                    <td>{targetURL.status_code || 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="fw-bold">Page Title:</td>
-                    <td>{targetURL.title?.String}</td>
+                    <td>{title || 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="fw-bold">Server Type:</td>
-                    <td>{targetURL.web_server?.String}</td>
+                    <td>{webServer || 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="fw-bold">Response Size:</td>
-                    <td>{targetURL.content_length} bytes</td>
+                    <td>{targetURL.content_length || 0} bytes</td>
                   </tr>
                   <tr>
                     <td className="fw-bold">Tech Stack:</td>
                     <td>
-                      {targetURL.technologies?.map((tech, index) => (
-                        <Badge key={index} bg="danger" className="me-1">{tech}</Badge>
-                      ))}
+                      {technologies.length > 0 ? (
+                        technologies.map((tech, index) => (
+                          <Badge key={index} bg="danger" className="me-1">
+                            {typeof tech === 'string' ? tech : ''}
+                          </Badge>
+                        ))
+                      ) : (
+                        'N/A'
+                      )}
                     </td>
                   </tr>
                 </tbody>
@@ -206,14 +236,20 @@ const TargetSection = ({ targetURL, roiScore }) => {
           </Card>
         </Col>
         <Col md={4}>
-          {targetURL.screenshot?.String && (
+          {targetURL.screenshot && (
             <Card className="bg-dark border-danger h-100">
-              <Card.Body className="p-2">
+              <Card.Body className="p-2 d-flex align-items-center justify-content-center">
                 <img 
-                  src={`data:image/png;base64,${targetURL.screenshot.String}`}
+                  src={`data:image/png;base64,${targetURL.screenshot}`}
                   alt="Target Screenshot"
-                  className="img-fluid w-100"
-                  style={{ maxHeight: '200px', objectFit: 'contain' }}
+                  className="img-fluid"
+                  style={{ 
+                    maxHeight: '200px',
+                    maxWidth: '100%',
+                    objectFit: 'contain',
+                    margin: 'auto',
+                    display: 'block'
+                  }}
                 />
               </Card.Body>
             </Card>
@@ -286,11 +322,11 @@ const TargetSection = ({ targetURL, roiScore }) => {
               <Table className="table-dark">
                 <tbody>
                   <tr>
-                    <td>Discovered Endpoints:</td>
+                    <td>Crawl Results:</td>
                     <td>{katanaResults}</td>
                   </tr>
                   <tr>
-                    <td>Hidden Paths:</td>
+                    <td>Endpoint Brute-Force Results:</td>
                     <td>{ffufResults}</td>
                   </tr>
                 </tbody>

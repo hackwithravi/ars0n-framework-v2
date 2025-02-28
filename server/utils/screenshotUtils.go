@@ -184,10 +184,17 @@ func ExecuteAndParseNucleiScreenshotScan(scanID, domain string) {
 		return
 	}
 
-	for _, file := range strings.Split(string(screenshotFiles), "\n") {
+	log.Printf("[DEBUG] Found screenshot files: %s", string(screenshotFiles))
+	fileList := strings.Split(string(screenshotFiles), "\n")
+	log.Printf("[DEBUG] Processing %d screenshot files", len(fileList))
+
+	for _, file := range fileList {
 		if file == "" || !strings.HasSuffix(file, ".png") {
+			log.Printf("[DEBUG] Skipping invalid file: %s", file)
 			continue
 		}
+
+		log.Printf("[DEBUG] Processing screenshot file: %s", file)
 
 		// Read the screenshot file
 		imgData, err := exec.Command("docker", "exec", "ars0n-framework-v2-nuclei-1", "cat", "/app/screenshots/"+file).Output()
@@ -195,6 +202,7 @@ func ExecuteAndParseNucleiScreenshotScan(scanID, domain string) {
 			log.Printf("[WARN] Failed to read screenshot file %s: %v", file, err)
 			continue
 		}
+		log.Printf("[DEBUG] Read screenshot file, size: %d bytes", len(imgData))
 
 		// Convert the URL-safe filename back to a real URL
 		url := strings.TrimSuffix(file, ".png")
@@ -203,10 +211,11 @@ func ExecuteAndParseNucleiScreenshotScan(scanID, domain string) {
 
 		// Normalize the URL
 		url = NormalizeURL(url)
-		log.Printf("[DEBUG] Looking for target URL: %s", url)
+		log.Printf("[DEBUG] Processing screenshot for URL: %s", url)
 
 		// Update target URL with screenshot
 		screenshot := base64.StdEncoding.EncodeToString(imgData)
+		log.Printf("[DEBUG] Base64 encoded screenshot size: %d bytes", len(screenshot))
 		if err := UpdateTargetURLFromScreenshot(url, screenshot); err != nil {
 			log.Printf("[WARN] Failed to update target URL screenshot for %s: %v", url, err)
 		}
@@ -367,9 +376,11 @@ func GetNucleiScreenshotScansForScopeTarget(w http.ResponseWriter, r *http.Reque
 // UpdateTargetURLFromScreenshot updates the screenshot for a target URL
 func UpdateTargetURLFromScreenshot(url, screenshot string) error {
 	log.Printf("[DEBUG] Updating screenshot for URL: %s", url)
+	log.Printf("[DEBUG] Screenshot data length: %d", len(screenshot))
 
 	// Normalize the URL
 	url = NormalizeURL(url)
+	log.Printf("[DEBUG] Normalized URL: %s", url)
 
 	// Check if target URL exists
 	var existingID string
@@ -381,11 +392,14 @@ func UpdateTargetURLFromScreenshot(url, screenshot string) error {
 		log.Printf("[WARN] No target URL found for %s, cannot update screenshot", url)
 		return fmt.Errorf("no target URL found for %s", url)
 	} else if err != nil {
+		log.Printf("[ERROR] Error checking for existing target URL: %v", err)
 		return fmt.Errorf("error checking for existing target URL: %v", err)
 	}
 
+	log.Printf("[DEBUG] Found existing target URL with ID: %s", existingID)
+
 	// Update the screenshot
-	_, err = dbPool.Exec(context.Background(),
+	result, err := dbPool.Exec(context.Background(),
 		`UPDATE target_urls SET 
 			screenshot = $1,
 			updated_at = NOW()
@@ -393,9 +407,11 @@ func UpdateTargetURLFromScreenshot(url, screenshot string) error {
 		screenshot, existingID)
 
 	if err != nil {
+		log.Printf("[ERROR] Failed to update target URL screenshot: %v", err)
 		return fmt.Errorf("failed to update target URL screenshot: %v", err)
 	}
 
-	log.Printf("[DEBUG] Successfully updated screenshot for URL: %s", url)
+	rowsAffected := result.RowsAffected()
+	log.Printf("[DEBUG] Successfully updated screenshot for URL: %s (rows affected: %d)", url, rowsAffected)
 	return nil
 }

@@ -71,7 +71,44 @@ const MetaDataModal = ({
                 if (url.has_untrusted_root_ssl) sslIssues.push('Untrusted Root');
 
                 const findings = Array.isArray(url.findings_json) ? url.findings_json : [];
-                const katanaUrls = Array.isArray(url.katana_results) ? url.katana_results : [];
+                
+                // Process katana results
+                let katanaUrls = [];
+                if (url.katana_results) {
+                  console.log('[DEBUG] Raw katana results:', url.katana_results);
+                  console.log('[DEBUG] Katana results type:', typeof url.katana_results);
+                  if (Array.isArray(url.katana_results)) {
+                    katanaUrls = url.katana_results;
+                    console.log('[DEBUG] Katana results is already an array');
+                  } else if (typeof url.katana_results === 'string') {
+                    try {
+                      const parsed = JSON.parse(url.katana_results);
+                      katanaUrls = Array.isArray(parsed) ? parsed : [];
+                      console.log('[DEBUG] Parsed katana results:', katanaUrls);
+                    } catch (error) {
+                      console.error('Error parsing katana results:', error);
+                    }
+                  }
+                }
+
+                // Process ffuf results
+                let ffufEndpoints = [];
+                if (url.ffuf_results) {
+                  console.log('[DEBUG] Raw ffuf results:', url.ffuf_results);
+                  console.log('[DEBUG] Ffuf results type:', typeof url.ffuf_results);
+                  if (typeof url.ffuf_results === 'object' && url.ffuf_results.endpoints) {
+                    ffufEndpoints = url.ffuf_results.endpoints;
+                    console.log('[DEBUG] Ffuf results is already an object with endpoints');
+                  } else if (typeof url.ffuf_results === 'string') {
+                    try {
+                      const parsed = JSON.parse(url.ffuf_results);
+                      ffufEndpoints = parsed.endpoints || [];
+                      console.log('[DEBUG] Parsed ffuf results:', ffufEndpoints);
+                    } catch (error) {
+                      console.error('Error parsing ffuf results:', error);
+                    }
+                  }
+                }
 
                 return (
                 <Accordion key={url.id} className="mb-3">
@@ -101,7 +138,7 @@ const MetaDataModal = ({
                             className="text-white"
                             style={{ fontSize: '0.8em' }}
                           >
-                            {url.ffuf_results?.endpoints?.length || 0} Endpoints
+                            {ffufEndpoints.length} Endpoints
                           </Badge>
                           {findings.length > 0 && (
                             <Badge 
@@ -252,6 +289,41 @@ const MetaDataModal = ({
                           </div>
                         </div>
                       )}
+                      {(() => {
+                        let headers = {};
+                        try {
+                          if (url.http_response_headers) {
+                            console.log('Raw response headers:', url.http_response_headers);
+                            if (typeof url.http_response_headers === 'string') {
+                              headers = JSON.parse(url.http_response_headers);
+                            } else {
+                              headers = url.http_response_headers;
+                            }
+                            console.log('Parsed response headers:', headers);
+                          }
+                        } catch (error) {
+                          console.error('Error parsing response headers:', error);
+                        }
+
+                        if (Object.keys(headers).length > 0) {
+                          return (
+                            <div className="mb-4">
+                              <h6 className="text-danger mb-3">Response Headers</h6>
+                              <div className="ms-3">
+                                <div className="bg-dark p-3 rounded">
+                                  {Object.entries(headers).map(([key, value], index) => (
+                                    <div key={index} className="mb-2 font-monospace small">
+                                      <span className="text-info">{key}:</span>{' '}
+                                      <span className="text-white">{Array.isArray(value) ? value.join(', ') : value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                       <div>
                         <h6 className="text-danger mb-3">Crawled URLs</h6>
                         <div className="ms-3">
@@ -326,16 +398,16 @@ const MetaDataModal = ({
                                     <small className="text-muted">Endpoints discovered through fuzzing</small>
                                   </div>
                                   <Badge 
-                                    bg={url.ffuf_results?.endpoints?.length > 0 ? "dark" : "secondary"}
+                                    bg={ffufEndpoints.length > 0 ? "dark" : "secondary"}
                                     className="ms-2 text-white"
                                     style={{ fontSize: '0.8em' }}
                                   >
-                                    {url.ffuf_results?.endpoints?.length || 0} Endpoints
+                                    {ffufEndpoints.length} Endpoints
                                   </Badge>
                                 </div>
                               </Accordion.Header>
                               <Accordion.Body>
-                                {url.ffuf_results?.endpoints?.length > 0 ? (
+                                {ffufEndpoints.length > 0 ? (
                                   <div 
                                     className="bg-dark p-3 rounded font-monospace" 
                                     style={{ 
@@ -344,7 +416,7 @@ const MetaDataModal = ({
                                       fontSize: '0.85em'
                                     }}
                                   >
-                                    {url.ffuf_results?.endpoints?.map((endpoint, index) => (
+                                    {ffufEndpoints.map((endpoint, index) => (
                                       <div key={index} className="mb-2 d-flex align-items-center">
                                         <Badge 
                                           bg={getStatusCodeColor(endpoint.status).bg}

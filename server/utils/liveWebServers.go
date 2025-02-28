@@ -889,19 +889,43 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[DEBUG] Getting target URLs for scope target ID: %s", scopeTargetID)
+
 	query := `
-		SELECT id, url, screenshot, status_code, title, web_server, 
-			   technologies, content_length, newly_discovered, no_longer_live,
-			   scope_target_id, created_at, updated_at,
-			   has_deprecated_tls, has_expired_ssl, has_mismatched_ssl,
-			   has_revoked_ssl, has_self_signed_ssl, has_untrusted_root_ssl,
-			   has_wildcard_tls, findings_json, http_response, http_response_headers,
-			   dns_a_records, dns_aaaa_records, dns_cname_records,
-			   dns_mx_records, dns_txt_records, dns_ns_records,
-			   dns_ptr_records, dns_srv_records, katana_results, ffuf_results
+		SELECT 
+			id, 
+			url, 
+			scope_target_id,
+			status_code,
+			title,
+			web_server,
+			technologies,
+			content_length, 
+			findings_json, 
+			katana_results, 
+			ffuf_results,
+			http_response,
+			http_response_headers,
+			has_deprecated_tls,
+			has_expired_ssl,
+			has_mismatched_ssl,
+			has_revoked_ssl,
+			has_self_signed_ssl,
+			has_untrusted_root_ssl,
+			dns_a_records,
+			dns_aaaa_records,
+			dns_cname_records,
+			dns_mx_records,
+			dns_txt_records,
+			dns_ns_records,
+			dns_ptr_records,
+			dns_srv_records,
+			roi_score,
+			created_at,
+			screenshot
 		FROM target_urls 
 		WHERE scope_target_id = $1 
-		ORDER BY created_at DESC`
+		ORDER BY roi_score DESC, created_at DESC`
 
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
 	if err != nil {
@@ -911,131 +935,122 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var targetURLs []TargetURLResponse
+	var targetURLs []map[string]interface{}
 	for rows.Next() {
-		var targetURL TargetURL
+		var (
+			id                  string
+			url                 string
+			scopeTargetID       string
+			statusCode          int
+			title               sql.NullString
+			webServer           sql.NullString
+			technologies        []string
+			contentLength       int
+			findingsJSON        sql.NullString
+			katanaResults       sql.NullString
+			ffufResults         sql.NullString
+			httpResponse        sql.NullString
+			httpResponseHeaders sql.NullString
+			hasDeprecatedTLS    bool
+			hasExpiredSSL       bool
+			hasMismatchedSSL    bool
+			hasRevokedSSL       bool
+			hasSelfSignedSSL    bool
+			hasUntrustedRootSSL bool
+			dnsARecords         []string
+			dnsAAAARecords      []string
+			dnsCNAMERecords     []string
+			dnsMXRecords        []string
+			dnsTXTRecords       []string
+			dnsNSRecords        []string
+			dnsPTRRecords       []string
+			dnsSRVRecords       []string
+			roiScore            float64
+			createdAt           time.Time
+			screenshot          sql.NullString
+		)
+
 		err := rows.Scan(
-			&targetURL.ID,
-			&targetURL.URL,
-			&targetURL.Screenshot,
-			&targetURL.StatusCode,
-			&targetURL.Title,
-			&targetURL.WebServer,
-			&targetURL.Technologies,
-			&targetURL.ContentLength,
-			&targetURL.NewlyDiscovered,
-			&targetURL.NoLongerLive,
-			&targetURL.ScopeTargetID,
-			&targetURL.CreatedAt,
-			&targetURL.UpdatedAt,
-			&targetURL.HasDeprecatedTLS,
-			&targetURL.HasExpiredSSL,
-			&targetURL.HasMismatchedSSL,
-			&targetURL.HasRevokedSSL,
-			&targetURL.HasSelfSignedSSL,
-			&targetURL.HasUntrustedRootSSL,
-			&targetURL.HasWildcardTLS,
-			&targetURL.FindingsJSON,
-			&targetURL.HTTPResponse,
-			&targetURL.HTTPResponseHeaders,
-			&targetURL.DNSARecords,
-			&targetURL.DNSAAAARecords,
-			&targetURL.DNSCNAMERecords,
-			&targetURL.DNSMXRecords,
-			&targetURL.DNSTXTRecords,
-			&targetURL.DNSNSRecords,
-			&targetURL.DNSPTRRecords,
-			&targetURL.DNSSRVRecords,
-			&targetURL.KatanaResults,
-			&targetURL.FfufResults,
+			&id,
+			&url,
+			&scopeTargetID,
+			&statusCode,
+			&title,
+			&webServer,
+			&technologies,
+			&contentLength,
+			&findingsJSON,
+			&katanaResults,
+			&ffufResults,
+			&httpResponse,
+			&httpResponseHeaders,
+			&hasDeprecatedTLS,
+			&hasExpiredSSL,
+			&hasMismatchedSSL,
+			&hasRevokedSSL,
+			&hasSelfSignedSSL,
+			&hasUntrustedRootSSL,
+			&dnsARecords,
+			&dnsAAAARecords,
+			&dnsCNAMERecords,
+			&dnsMXRecords,
+			&dnsTXTRecords,
+			&dnsNSRecords,
+			&dnsPTRRecords,
+			&dnsSRVRecords,
+			&roiScore,
+			&createdAt,
+			&screenshot,
 		)
 		if err != nil {
-			log.Printf("[ERROR] Failed to scan target URL row: %v", err)
+			log.Printf("[ERROR] Failed to scan row: %v", err)
 			continue
 		}
 
-		// Parse findings_json into a proper array
-		var findings []interface{}
-		if len(targetURL.FindingsJSON) > 0 {
-			if err := json.Unmarshal(targetURL.FindingsJSON, &findings); err != nil {
-				log.Printf("[WARN] Failed to unmarshal findings JSON for URL %s: %v", targetURL.URL, err)
-				findings = make([]interface{}, 0)
-			}
-		} else {
-			findings = make([]interface{}, 0)
+		log.Printf("[DEBUG] Processing target URL: %s", url)
+		log.Printf("[DEBUG] Status code: %d", statusCode)
+		log.Printf("[DEBUG] Title: %v", title)
+		log.Printf("[DEBUG] Web server: %v", webServer)
+		log.Printf("[DEBUG] Technologies: %v", technologies)
+		log.Printf("[DEBUG] Content length: %d", contentLength)
+
+		targetURL := map[string]interface{}{
+			"id":                     id,
+			"url":                    url,
+			"scope_target_id":        scopeTargetID,
+			"status_code":            statusCode,
+			"title":                  nullStringToString(title),
+			"web_server":             nullStringToString(webServer),
+			"technologies":           technologies,
+			"content_length":         contentLength,
+			"findings_json":          nullStringToString(findingsJSON),
+			"katana_results":         nullStringToString(katanaResults),
+			"ffuf_results":           nullStringToString(ffufResults),
+			"http_response":          nullStringToString(httpResponse),
+			"http_response_headers":  nullStringToString(httpResponseHeaders),
+			"has_deprecated_tls":     hasDeprecatedTLS,
+			"has_expired_ssl":        hasExpiredSSL,
+			"has_mismatched_ssl":     hasMismatchedSSL,
+			"has_revoked_ssl":        hasRevokedSSL,
+			"has_self_signed_ssl":    hasSelfSignedSSL,
+			"has_untrusted_root_ssl": hasUntrustedRootSSL,
+			"dns_a_records":          dnsARecords,
+			"dns_aaaa_records":       dnsAAAARecords,
+			"dns_cname_records":      dnsCNAMERecords,
+			"dns_mx_records":         dnsMXRecords,
+			"dns_txt_records":        dnsTXTRecords,
+			"dns_ns_records":         dnsNSRecords,
+			"dns_ptr_records":        dnsPTRRecords,
+			"dns_srv_records":        dnsSRVRecords,
+			"roi_score":              roiScore,
+			"created_at":             createdAt.Format(time.RFC3339),
+			"screenshot":             nullStringToString(screenshot),
 		}
 
-		// Parse katana_results into a proper array
-		var katanaResults []string
-		if len(targetURL.KatanaResults) > 0 {
-			if err := json.Unmarshal(targetURL.KatanaResults, &katanaResults); err != nil {
-				log.Printf("[WARN] Failed to unmarshal katana results for URL %s: %v", targetURL.URL, err)
-				katanaResults = make([]string, 0)
-			}
-		} else {
-			katanaResults = make([]string, 0)
-		}
-
-		// Parse http_response_headers into a map
-		var httpResponseHeaders map[string]interface{}
-		if len(targetURL.HTTPResponseHeaders) > 0 {
-			if err := json.Unmarshal(targetURL.HTTPResponseHeaders, &httpResponseHeaders); err != nil {
-				log.Printf("[WARN] Failed to unmarshal HTTP response headers for URL %s: %v", targetURL.URL, err)
-				httpResponseHeaders = make(map[string]interface{})
-			}
-		} else {
-			httpResponseHeaders = make(map[string]interface{})
-		}
-
-		// Parse ffuf_results into a map
-		var ffufResults map[string]interface{}
-		if len(targetURL.FfufResults) > 0 {
-			if err := json.Unmarshal(targetURL.FfufResults, &ffufResults); err != nil {
-				log.Printf("[WARN] Failed to unmarshal ffuf results for URL %s: %v", targetURL.URL, err)
-				ffufResults = make(map[string]interface{})
-			}
-		} else {
-			ffufResults = make(map[string]interface{})
-		}
-
-		response := TargetURLResponse{
-			ID:                  targetURL.ID,
-			URL:                 targetURL.URL,
-			Screenshot:          targetURL.Screenshot,
-			StatusCode:          targetURL.StatusCode,
-			Title:               targetURL.Title,
-			WebServer:           targetURL.WebServer,
-			Technologies:        targetURL.Technologies,
-			ContentLength:       targetURL.ContentLength,
-			NewlyDiscovered:     targetURL.NewlyDiscovered,
-			NoLongerLive:        targetURL.NoLongerLive,
-			ScopeTargetID:       targetURL.ScopeTargetID,
-			CreatedAt:           targetURL.CreatedAt,
-			UpdatedAt:           targetURL.UpdatedAt,
-			HasDeprecatedTLS:    targetURL.HasDeprecatedTLS,
-			HasExpiredSSL:       targetURL.HasExpiredSSL,
-			HasMismatchedSSL:    targetURL.HasMismatchedSSL,
-			HasRevokedSSL:       targetURL.HasRevokedSSL,
-			HasSelfSignedSSL:    targetURL.HasSelfSignedSSL,
-			HasUntrustedRootSSL: targetURL.HasUntrustedRootSSL,
-			HasWildcardTLS:      targetURL.HasWildcardTLS,
-			FindingsJSON:        findings,
-			HTTPResponse:        targetURL.HTTPResponse,
-			HTTPResponseHeaders: httpResponseHeaders,
-			DNSARecords:         targetURL.DNSARecords,
-			DNSAAAARecords:      targetURL.DNSAAAARecords,
-			DNSCNAMERecords:     targetURL.DNSCNAMERecords,
-			DNSMXRecords:        targetURL.DNSMXRecords,
-			DNSTXTRecords:       targetURL.DNSTXTRecords,
-			DNSNSRecords:        targetURL.DNSNSRecords,
-			DNSPTRRecords:       targetURL.DNSPTRRecords,
-			DNSSRVRecords:       targetURL.DNSSRVRecords,
-			KatanaResults:       katanaResults,
-			FfufResults:         ffufResults,
-			ROIScore:            targetURL.ROIScore,
-		}
-		targetURLs = append(targetURLs, response)
+		targetURLs = append(targetURLs, targetURL)
 	}
+
+	log.Printf("[DEBUG] Returning %d target URLs", len(targetURLs))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(targetURLs)

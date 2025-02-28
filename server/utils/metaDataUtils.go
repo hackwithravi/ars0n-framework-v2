@@ -203,10 +203,12 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 	log.Printf("[INFO] Successfully wrote %d URLs to temp file for scan ID: %s", len(urls), scanID)
 
 	// Run Katana scan first
-	log.Printf("[INFO] Starting Katana scan for scan ID: %s", scanID)
+	log.Printf("[INFO] Starting Katana scan for scan ID: %s - Total URLs to scan: %d", scanID, len(urls))
 	katanaResults := make(map[string][]string)
+	completedKatana := 0
 	for _, url := range urls {
-		log.Printf("[DEBUG] Running Katana scan for URL: %s", url)
+		completedKatana++
+		log.Printf("[INFO] Running Katana scan for URL: %s (%d/%d)", url, completedKatana, len(urls))
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
@@ -215,11 +217,12 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 			"katana",
 			"-u", url,
 			"-jc",
-			"-d", "3",
+			"-d", "2",
 			"-j",
 			"-v",
-			"-timeout", "60",
-			"-rl", "100",
+			"-timeout", "30",
+			"-c", "15",
+			"p", "15",
 		)
 
 		katanaCmd.WaitDelay = 30 * time.Second
@@ -231,13 +234,13 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 		log.Printf("[DEBUG] Executing Katana command: %s", katanaCmd.String())
 		if err := katanaCmd.Run(); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
-				log.Printf("[WARN] Katana scan timed out for URL %s", url)
+				log.Printf("[WARN] Katana scan timed out for URL %s (%d/%d)", url, completedKatana, len(urls))
 				continue
 			}
-			log.Printf("[WARN] Katana scan failed for URL %s: %v\nStderr: %s", url, err, stderr.String())
+			log.Printf("[WARN] Katana scan failed for URL %s (%d/%d): %v\nStderr: %s", url, completedKatana, len(urls), err, stderr.String())
 			continue
 		}
-		log.Printf("[DEBUG] Katana scan completed for URL: %s", url)
+		log.Printf("[INFO] Completed Katana scan for URL: %s (%d/%d)", url, completedKatana, len(urls))
 
 		var crawledURLs []string
 		seenURLs := make(map[string]bool)
@@ -542,6 +545,78 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		},
 	}
 
+	// Process each URL first to get response headers and body
+	for _, urlStr := range urls {
+		log.Printf("[DEBUG] Processing URL for headers: %s", urlStr)
+
+		// Make HTTP request
+		req, err := http.NewRequest("GET", urlStr, nil)
+		if err != nil {
+			log.Printf("[ERROR] Failed to create request for URL %s: %v", urlStr, err)
+			continue
+		}
+
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[ERROR] Failed to make request to URL %s: %v", urlStr, err)
+			continue
+		}
+
+		log.Printf("[DEBUG] Got response for URL %s - Status: %d, Number of headers: %d", urlStr, resp.StatusCode, len(resp.Header))
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			log.Printf("[ERROR] Failed to read response body from URL %s: %v", urlStr, err)
+			continue
+		}
+
+		// Sanitize the response body
+		sanitizedBody := SanitizeResponse(body)
+
+		// Convert headers to map for JSON storage
+		headers := make(map[string]interface{})
+		log.Printf("[DEBUG] Processing headers for URL %s:", urlStr)
+		for k, v := range resp.Header {
+			log.Printf("[DEBUG] Header: %s = %v", k, v)
+			// Convert header values to a consistent format
+			if len(v) == 1 {
+				headers[k] = v[0] // Store single value directly
+				log.Printf("[DEBUG] Stored single value header: %s = %s", k, v[0])
+			} else {
+				headers[k] = v // Store multiple values as string slice
+				log.Printf("[DEBUG] Stored multi-value header: %s = %v", k, v)
+			}
+		}
+
+		// Convert headers to JSON before storing
+		headersJSON, err := json.Marshal(headers)
+		if err != nil {
+			log.Printf("[ERROR] Failed to marshal headers for URL %s: %v", urlStr, err)
+			continue
+		}
+		log.Printf("[DEBUG] Marshaled headers JSON (length: %d): %s", len(headersJSON), string(headersJSON))
+
+		// Store response data in database
+		_, err = dbPool.Exec(context.Background(),
+			`UPDATE target_urls 
+			 SET http_response = $1,
+			     http_response_headers = $2::jsonb
+			 WHERE url = $3 AND scope_target_id = $4`,
+			sanitizedBody,
+			string(headersJSON),
+			urlStr,
+			scopeTargetID)
+		if err != nil {
+			log.Printf("[ERROR] Failed to store response data for URL %s: %v", urlStr, err)
+			continue
+		}
+		log.Printf("[INFO] Successfully stored response data for URL %s with %d headers", urlStr, len(headers))
+	}
+
 	// Create a temporary file for URLs
 	tempFile, err := os.CreateTemp("", "urls-*.txt")
 	if err != nil {
@@ -630,7 +705,7 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		urlFindings[matchedURL] = append(urlFindings[matchedURL], result)
 	}
 
-	// Make HTTP requests and update each URL with its findings and response data
+	// Update findings and DNS records for each URL
 	for urlStr, findings := range urlFindings {
 		// Parse URL to get hostname for DNS lookups
 		parsedURL, err := url.Parse(urlStr)
@@ -642,67 +717,6 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 		// Perform DNS lookups
 		dnsResults := PerformDNSLookups(parsedURL.Hostname())
 
-		// Make HTTP request
-		req, err := http.NewRequest("GET", urlStr, nil)
-		if err != nil {
-			log.Printf("[ERROR] Failed to create request for URL %s: %v", urlStr, err)
-			continue
-		}
-
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("[ERROR] Failed to make request to URL %s: %v", urlStr, err)
-			continue
-		}
-
-		// Read response body
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			log.Printf("[ERROR] Failed to read response body from URL %s: %v", urlStr, err)
-			continue
-		}
-
-		// Sanitize the response body
-		sanitizedBody := SanitizeResponse(body)
-
-		// Convert headers to map for JSON storage
-		headers := make(map[string]interface{})
-		for k, v := range resp.Header {
-			// Convert header values to a consistent format
-			if len(v) == 1 {
-				headers[k] = v[0] // Store single value directly
-			} else {
-				headers[k] = v // Store multiple values as string slice
-			}
-		}
-
-		// Convert headers to JSON before storing
-		headersJSON, err := json.Marshal(headers)
-		if err != nil {
-			log.Printf("[ERROR] Failed to marshal headers for URL %s: %v", urlStr, err)
-			continue
-		}
-
-		// Update database with findings, response data, and DNS records
-		query := `
-			UPDATE target_urls 
-			SET 
-				findings_json = $1::jsonb,
-				http_response = $2,
-				http_response_headers = $3::jsonb,
-				dns_a_records = $4,
-				dns_aaaa_records = $5,
-				dns_cname_records = $6,
-				dns_mx_records = $7,
-				dns_txt_records = $8,
-				dns_ns_records = $9,
-				dns_ptr_records = $10,
-				dns_srv_records = $11
-			WHERE url = $12 AND scope_target_id = $13`
-
 		// Convert findings to proper JSON
 		findingsJSON, err := json.Marshal(findings)
 		if err != nil {
@@ -710,11 +724,20 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			continue
 		}
 
-		commandTag, err := dbPool.Exec(context.Background(),
-			query,
+		// Update database with findings and DNS records
+		_, err = dbPool.Exec(context.Background(),
+			`UPDATE target_urls 
+			 SET findings_json = $1::jsonb,
+			     dns_a_records = $2,
+			     dns_aaaa_records = $3,
+			     dns_cname_records = $4,
+			     dns_mx_records = $5,
+			     dns_txt_records = $6,
+			     dns_ns_records = $7,
+			     dns_ptr_records = $8,
+			     dns_srv_records = $9
+			 WHERE url = $10 AND scope_target_id = $11`,
 			findingsJSON,
-			sanitizedBody,
-			string(headersJSON), // Store headers as JSONB
 			dnsResults.ARecords,
 			dnsResults.AAAARecords,
 			dnsResults.CNAMERecords,
@@ -724,14 +747,12 @@ func ExecuteAndParseNucleiTechScan(urls []string, scopeTargetID string) error {
 			dnsResults.PTRRecords,
 			dnsResults.SRVRecords,
 			urlStr,
-			scopeTargetID,
-		)
+			scopeTargetID)
 		if err != nil {
-			log.Printf("[ERROR] Failed to update findings and response data for URL %s: %v", urlStr, err)
+			log.Printf("[ERROR] Failed to update findings and DNS records for URL %s: %v", urlStr, err)
 			continue
 		}
-		rowsAffected := commandTag.RowsAffected()
-		log.Printf("[INFO] Updated findings and response data for URL %s (Rows affected: %d)", urlStr, rowsAffected)
+		log.Printf("[INFO] Updated findings and DNS records for URL %s", urlStr)
 	}
 
 	// Clean up the output file
@@ -1040,6 +1061,24 @@ func ExecuteFfufScan(url string, scopeTargetID string) error {
 	log.Printf("[INFO] Starting ffuf scan for URL: %s", url)
 	startTime := time.Now()
 
+	// Parse the base URL to get the list of URLs to scan
+	var urlsToScan []string
+	err := dbPool.QueryRow(context.Background(),
+		`SELECT katana_results FROM target_urls WHERE url = $1 AND scope_target_id = $2`,
+		url, scopeTargetID).Scan(&urlsToScan)
+
+	if err != nil && err != pgx.ErrNoRows {
+		return fmt.Errorf("failed to get katana results: %v", err)
+	}
+
+	// If no Katana results, just scan the base URL
+	if len(urlsToScan) == 0 {
+		urlsToScan = []string{url}
+	}
+
+	log.Printf("[INFO] Starting ffuf scans - Total URLs to scan: %d", len(urlsToScan))
+	completedFfuf := 0
+
 	// Create a temporary directory for output
 	tempDir := filepath.Join("/tmp", fmt.Sprintf("ffuf-%s", uuid.New().String()))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -1078,115 +1117,91 @@ func ExecuteFfufScan(url string, scopeTargetID string) error {
 		log.Printf("[DEBUG] Wordlist verified in container: %s", string(out))
 	}
 
-	// Prepare output file path
-	outputFile := filepath.Join(tempDir, "ffuf-output.json")
+	for _, targetURL := range urlsToScan {
+		completedFfuf++
+		log.Printf("[INFO] Running ffuf scan for URL: %s (%d/%d)", targetURL, completedFfuf, len(urlsToScan))
 
-	// Run ffuf scan
-	targetURL := fmt.Sprintf("%s/FUZZ", url)
-	cmd := exec.Command(
-		"docker", "exec",
-		"ars0n-framework-v2-ffuf-1",
-		"ffuf",
-		"-w", "/wordlist.txt",
-		"-u", targetURL,
-		"-mc", "all",
-		"-o", "/output.json",
-		"-of", "json",
-		"-ac",
-		"-c",
-		"-r",
-		"-t", "50",
-	)
+		// Run ffuf scan
+		fuzzyURL := fmt.Sprintf("%s/FUZZ", targetURL)
+		cmd := exec.Command(
+			"docker", "exec",
+			"ars0n-framework-v2-ffuf-1",
+			"ffuf",
+			"-w", "/wordlist.txt",
+			"-u", fuzzyURL,
+			"-mc", "all",
+			"-o", "/output.json",
+			"-of", "json",
+			"-ac",
+			"-c",
+			"-r",
+			"-t", "50",
+		)
 
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 
-	log.Printf("[DEBUG] Running ffuf command: %s", cmd.String())
-	if err := cmd.Run(); err != nil {
-		log.Printf("[ERROR] ffuf scan failed: %v\nStderr: %s", err, stderr.String())
-		return fmt.Errorf("ffuf scan failed: %v", err)
-	}
-	log.Printf("[DEBUG] ffuf scan completed successfully")
-
-	// Verify output file exists in container
-	checkOutputCmd := exec.Command(
-		"docker", "exec",
-		"ars0n-framework-v2-ffuf-1",
-		"ls", "-l", "/output.json",
-	)
-	if out, err := checkOutputCmd.CombinedOutput(); err != nil {
-		log.Printf("[ERROR] Output file not found in container. Output: %s, Error: %v", string(out), err)
-		return fmt.Errorf("output file not found in container: %v", err)
-	} else {
-		log.Printf("[DEBUG] Output file verified in container: %s", string(out))
-	}
-
-	// Copy results from container
-	copyResultsCmd := exec.Command(
-		"docker", "cp",
-		"ars0n-framework-v2-ffuf-1:/output.json",
-		outputFile,
-	)
-	var copyResultsStderr bytes.Buffer
-	copyResultsCmd.Stderr = &copyResultsStderr
-	if err := copyResultsCmd.Run(); err != nil {
-		log.Printf("[ERROR] Failed to copy results from container. Command: %s, Error: %v, Stderr: %s",
-			copyResultsCmd.String(), err, copyResultsStderr.String())
-		return fmt.Errorf("failed to copy results from container: %v (stderr: %s)", err, copyResultsStderr.String())
-	}
-	log.Printf("[DEBUG] Successfully copied results from container")
-
-	// Read and parse results
-	resultBytes, err := os.ReadFile(outputFile)
-	if err != nil {
-		log.Printf("[ERROR] Failed to read ffuf results file at %s: %v", outputFile, err)
-		return fmt.Errorf("failed to read ffuf results: %v", err)
-	}
-	log.Printf("[DEBUG] Read %d bytes from results file", len(resultBytes))
-
-	var results struct {
-		Results []FfufResult `json:"results"`
-	}
-	if err := json.Unmarshal(resultBytes, &results); err != nil {
-		log.Printf("[ERROR] Failed to parse ffuf results JSON: %v\nContent: %s", err, string(resultBytes))
-		return fmt.Errorf("failed to parse ffuf results: %v", err)
-	}
-	log.Printf("[DEBUG] Successfully parsed %d results from JSON", len(results.Results))
-
-	// Filter and format results
-	var endpoints []map[string]interface{}
-	for _, result := range results.Results {
-		endpoint := map[string]interface{}{
-			"path":   result.Input.FUZZ,
-			"status": result.Status,
-			"size":   result.Length,
-			"words":  result.Words,
-			"lines":  result.Lines,
+		log.Printf("[DEBUG] Running ffuf command: %s", cmd.String())
+		if err := cmd.Run(); err != nil {
+			log.Printf("[ERROR] ffuf scan failed for URL %s (%d/%d): %v\nStderr: %s",
+				targetURL, completedFfuf, len(urlsToScan), err, stderr.String())
+			continue
 		}
-		endpoints = append(endpoints, endpoint)
+		log.Printf("[INFO] Completed ffuf scan for URL: %s (%d/%d)", targetURL, completedFfuf, len(urlsToScan))
+
+		// Read and parse results
+		resultBytes, err := os.ReadFile(filepath.Join(tempDir, "output.json"))
+		if err != nil {
+			log.Printf("[ERROR] Failed to read ffuf results file at %s: %v", filepath.Join(tempDir, "output.json"), err)
+			return fmt.Errorf("failed to read ffuf results: %v", err)
+		}
+		log.Printf("[DEBUG] Read %d bytes from results file", len(resultBytes))
+
+		var results struct {
+			Results []FfufResult `json:"results"`
+		}
+		if err := json.Unmarshal(resultBytes, &results); err != nil {
+			log.Printf("[ERROR] Failed to parse ffuf results JSON: %v\nContent: %s", err, string(resultBytes))
+			return fmt.Errorf("failed to parse ffuf results: %v", err)
+		}
+		log.Printf("[DEBUG] Successfully parsed %d results from JSON", len(results.Results))
+
+		// Filter and format results
+		var endpoints []map[string]interface{}
+		for _, result := range results.Results {
+			endpoint := map[string]interface{}{
+				"path":   result.Input.FUZZ,
+				"status": result.Status,
+				"size":   result.Length,
+				"words":  result.Words,
+				"lines":  result.Lines,
+			}
+			endpoints = append(endpoints, endpoint)
+		}
+
+		// Store results in database
+		ffufResults := map[string]interface{}{
+			"endpoints": endpoints,
+		}
+		ffufResultsJSON, err := json.Marshal(ffufResults)
+		if err != nil {
+			log.Printf("[ERROR] Failed to marshal ffuf results to JSON: %v", err)
+			return fmt.Errorf("failed to marshal ffuf results: %v", err)
+		}
+
+		_, err = dbPool.Exec(context.Background(),
+			`UPDATE target_urls 
+			 SET ffuf_results = $1::jsonb 
+			 WHERE url = $2 AND scope_target_id = $3`,
+			string(ffufResultsJSON), targetURL, scopeTargetID)
+		if err != nil {
+			log.Printf("[ERROR] Failed to store ffuf results in database: %v", err)
+			return fmt.Errorf("failed to store ffuf results: %v", err)
+		}
+
+		log.Printf("[INFO] Successfully completed ffuf scan for %s in %s. Found %d endpoints.",
+			targetURL, time.Since(startTime), len(endpoints))
 	}
 
-	// Store results in database
-	ffufResults := map[string]interface{}{
-		"endpoints": endpoints,
-	}
-	ffufResultsJSON, err := json.Marshal(ffufResults)
-	if err != nil {
-		log.Printf("[ERROR] Failed to marshal ffuf results to JSON: %v", err)
-		return fmt.Errorf("failed to marshal ffuf results: %v", err)
-	}
-
-	_, err = dbPool.Exec(context.Background(),
-		`UPDATE target_urls 
-		 SET ffuf_results = $1::jsonb 
-		 WHERE url = $2 AND scope_target_id = $3`,
-		string(ffufResultsJSON), url, scopeTargetID)
-	if err != nil {
-		log.Printf("[ERROR] Failed to store ffuf results in database: %v", err)
-		return fmt.Errorf("failed to store ffuf results: %v", err)
-	}
-
-	log.Printf("[INFO] Successfully completed ffuf scan for %s in %s. Found %d endpoints.",
-		url, time.Since(startTime), len(endpoints))
 	return nil
 }
