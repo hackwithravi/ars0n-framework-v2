@@ -1,9 +1,9 @@
 const validateInput = (type, inputText) => {
   if (type === 'Company') {
-    if (!/^[a-zA-Z0-9]+$/.test(inputText)) {
+    if (!/^[a-zA-Z0-9\s.-]+$/.test(inputText)) {
       return {
         valid: false,
-        message: 'Invalid Company name. Example: Google'
+        message: 'Invalid Company name. Only letters, numbers, spaces, dots, and hyphens are allowed. Example: Google Inc'
       };
     }
   } else if (type === 'Wildcard') {
@@ -18,36 +18,15 @@ const validateInput = (type, inputText) => {
       };
     }
   } else if (type === 'URL') {
-    const urlRegex = /^(https?:\/\/)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    const urlRegex = /^(https?:\/\/)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/[a-zA-Z0-9._/-]*)?$/;
     if (!urlRegex.test(inputText)) {
       return {
         valid: false,
-        message: 'Invalid URL. Example: https://google.com'
+        message: 'Invalid URL. Example: https://example.google.com/path'
       };
     }
-  } else if (type === 'Cloud') {
-    const cloudRegex = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!cloudRegex.test(inputText)) {
-      return {
-        valid: false,
-        message: 'Invalid Cloud domain. Example: aws.amazon.com'
-      };
-    }
-  } else if (type === 'API') {
-    const apiRegex = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!apiRegex.test(inputText)) {
-      return {
-        valid: false,
-        message: 'Invalid API endpoint. Example: api.service.com'
-      };
-    }
-  } else if (type === 'CIDR') {
-    const cidrRegex = /^([0-9]{1,3}\.){3}[0-9]{1,3}\/([0-9]|[1-2][0-9]|3[0-2])$/;
-    if (!cidrRegex.test(inputText)) {
-      return {
-        valid: false,
-        message: 'Invalid CIDR notation. Example: 192.168.1.0/24'
-      };
+    if (!inputText.startsWith('http://') && !inputText.startsWith('https://')) {
+      inputText = `https://${inputText}`;
     }
   } else {
     return {

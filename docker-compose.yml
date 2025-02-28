@@ -25,6 +25,8 @@ services:
       - 1.1.1.1
     dns_search: .
     restart: unless-stopped
+    networks:
+      - ars0n-network
 
   db:
     container_name: ars0n-framework-v2-db-1
@@ -41,6 +43,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - ars0n-network
 
   client:
     container_name: ars0n-framework-v2-client-1
@@ -50,6 +54,8 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    networks:
+      - ars0n-network
 
   assetfinder:
     container_name: ars0n-framework-v2-assetfinder-1
@@ -58,6 +64,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   sublist3r:
     container_name: ars0n-framework-v2-sublist3r-1
@@ -66,6 +74,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   ctl:
     container_name: ars0n-framework-v2-ctl-1
@@ -74,6 +84,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   subfinder:
     container_name: ars0n-framework-v2-subfinder-1
@@ -82,6 +94,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   shuffledns:
     container_name: ars0n-framework-v2-shuffledns-1
@@ -92,6 +106,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   cewl:
     container_name: ars0n-framework-v2-cewl-1
@@ -100,6 +116,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   gospider:
     container_name: ars0n-framework-v2-gospider-1
@@ -110,6 +128,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   subdomainizer:
     container_name: ars0n-framework-v2-subdomainizer-1
@@ -120,6 +140,8 @@ services:
       - api
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   nuclei:
     container_name: ars0n-framework-v2-nuclei-1
@@ -131,18 +153,28 @@ services:
     entrypoint: ["sleep", "infinity"]
     shm_size: '2g'
     restart: "no"
+    networks:
+      - ars0n-network
 
   katana:
     container_name: ars0n-framework-v2-katana-1
     build:
       context: ./docker/katana
       dockerfile: Dockerfile
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
     depends_on:
       - api
     volumes:
       - temp_data:/tmp
     entrypoint: ["sleep", "infinity"]
-    restart: "no"
+    restart: unless-stopped
+    networks:
+      - ars0n-network
 
   httpx:
     container_name: ars0n-framework-v2-httpx-1
@@ -153,6 +185,8 @@ services:
       - temp_data:/tmp
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
   ffuf:
     container_name: ars0n-framework-v2-ffuf-1
@@ -163,7 +197,13 @@ services:
       - ./wordlists:/wordlists
     entrypoint: ["sleep", "infinity"]
     restart: "no"
+    networks:
+      - ars0n-network
 
 volumes:
   postgres_data:
   temp_data:
+
+networks:
+  ars0n-network:
+    driver: bridge

@@ -207,7 +207,10 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 	katanaResults := make(map[string][]string)
 	for _, url := range urls {
 		log.Printf("[DEBUG] Running Katana scan for URL: %s", url)
-		katanaCmd := exec.Command(
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		katanaCmd := exec.CommandContext(ctx,
 			"docker", "exec", "ars0n-framework-v2-katana-1",
 			"katana",
 			"-u", url,
@@ -215,7 +218,11 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 			"-d", "3",
 			"-j",
 			"-v",
+			"-timeout", "60",
+			"-rl", "100",
 		)
+
+		katanaCmd.WaitDelay = 30 * time.Second
 
 		var stdout, stderr bytes.Buffer
 		katanaCmd.Stdout = &stdout
@@ -223,6 +230,10 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 
 		log.Printf("[DEBUG] Executing Katana command: %s", katanaCmd.String())
 		if err := katanaCmd.Run(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Printf("[WARN] Katana scan timed out for URL %s", url)
+				continue
+			}
 			log.Printf("[WARN] Katana scan failed for URL %s: %v\nStderr: %s", url, err, stderr.String())
 			continue
 		}
@@ -341,7 +352,7 @@ func ExecuteAndParseMetaDataScan(scanID, domain string) {
 		// If it doesn't exist, insert it
 		if !exists {
 			_, err = dbPool.Exec(context.Background(),
-				`INSERT INTO target_urls (url, scope_target_id) VALUES ($1, $2)`,
+				`INSERT INTO target_urls (url, scope_target_id, roi_score) VALUES ($1, $2, 50)`,
 				baseURL, scopeTargetID)
 			if err != nil {
 				log.Printf("[ERROR] Failed to insert target URL %s: %v", baseURL, err)

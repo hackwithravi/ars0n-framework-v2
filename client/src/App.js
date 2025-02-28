@@ -76,11 +76,70 @@ import initiateMetaDataScan from './utils/initiateMetaDataScan';
 import monitorMetaDataScanStatus from './utils/monitorMetaDataScanStatus';
 import MetaDataModal from './modals/MetaDataModal.js';
 import fetchHttpxScans from './utils/fetchHttpxScans';
+import ROIReport from './components/ROIReport';
 
 // Add helper function
 const getHttpxResultsCount = (scan) => {
   if (!scan?.result?.String) return 0;
   return scan.result.String.split('\n').filter(line => line.trim()).length;
+};
+
+// Add this function before the App component
+const calculateROIScore = (targetURL) => {
+  let score = 50;
+  
+  // Deduct points for SSL issues
+  const sslIssues = [
+    targetURL.has_deprecated_tls,
+    targetURL.has_expired_ssl,
+    targetURL.has_mismatched_ssl,
+    targetURL.has_revoked_ssl,
+    targetURL.has_self_signed_ssl,
+    targetURL.has_untrusted_root_ssl
+  ].filter(Boolean).length;
+  
+  score -= sslIssues * 5;
+  
+  // Add points for attack surface (katana + ffuf findings)
+  let katanaCount = 0;
+  let ffufCount = 0;
+  
+  try {
+    const katanaData = targetURL.katana_results ? JSON.parse(targetURL.katana_results) : [];
+    katanaCount = Array.isArray(katanaData) ? katanaData.length : 0;
+  } catch (error) {
+    console.error('Error parsing katana results:', error);
+  }
+  
+  try {
+    const ffufData = targetURL.ffuf_results ? JSON.parse(targetURL.ffuf_results) : {};
+    ffufCount = ffufData.endpoints ? ffufData.endpoints.length : 0;
+  } catch (error) {
+    console.error('Error parsing ffuf results:', error);
+  }
+  
+  score += Math.min((katanaCount + ffufCount) / 10, 20);
+  
+  // Add points for technology diversity
+  if (targetURL.technologies && targetURL.technologies.length > 0) {
+    score += Math.min(targetURL.technologies.length * 2, 10);
+  }
+  
+  // Add points for DNS complexity
+  const dnsRecordCount = [
+    targetURL.dns_a_records,
+    targetURL.dns_aaaa_records,
+    targetURL.dns_cname_records,
+    targetURL.dns_mx_records,
+    targetURL.dns_txt_records,
+    targetURL.dns_ns_records,
+    targetURL.dns_ptr_records,
+    targetURL.dns_srv_records
+  ].reduce((sum, records) => sum + (records ? records.length : 0), 0);
+  
+  score += Math.min(dnsRecordCount, 10);
+  
+  return Math.max(0, Math.min(100, Math.round(score)));
 };
 
 function App() {
@@ -178,6 +237,8 @@ function App() {
   const [isMetaDataScanning, setIsMetaDataScanning] = useState(false);
   const [showMetaDataModal, setShowMetaDataModal] = useState(false);
   const [targetURLs, setTargetURLs] = useState([]);
+  const [showROIReport, setShowROIReport] = useState(false);
+  const [selectedTargetURL, setSelectedTargetURL] = useState(null);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -963,6 +1024,57 @@ function App() {
     }
   };
 
+  const handleOpenROIReport = async () => {
+    try {
+      // First, get the latest target URLs
+      const response = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/target-urls`
+      );
+      if (!response.ok) {
+        throw new Error('Failed to fetch target URLs');
+      }
+      const data = await response.json();
+
+      // Calculate and update ROI scores for each target
+      const updatePromises = data.map(async (target) => {
+        const score = calculateROIScore(target);
+        const updateResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/target-urls/${target.id}/roi-score`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ roi_score: score }),
+          }
+        );
+        if (!updateResponse.ok) {
+          console.error(`Failed to update ROI score for target ${target.id}`);
+        }
+      });
+
+      // Wait for all updates to complete
+      await Promise.all(updatePromises);
+
+      // Fetch the updated target URLs
+      const updatedResponse = await fetch(
+        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/target-urls`
+      );
+      if (!updatedResponse.ok) {
+        throw new Error('Failed to fetch updated target URLs');
+      }
+      const updatedData = await updatedResponse.json();
+      setTargetURLs(updatedData);
+      setShowROIReport(true);
+    } catch (error) {
+      console.error('Error preparing ROI report:', error);
+    }
+  };
+
+  const handleCloseROIReport = () => {
+    setShowROIReport(false);
+  };
+
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
       <Ars0nFrameworkHeader />
@@ -1197,36 +1309,26 @@ function App() {
               <div className="mb-4">
                 <h3 className="text-danger">Company</h3>
                 <Row>
-                  <Col md={6}>
-                    <Card className="mb-3 shadow-sm">
-                      <Card.Body>
-                        <Card.Title>Row 1, Column 1</Card.Title>
-                        <Card.Text>Content for Row 1, Column 1.</Card.Text>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                  <Col md={6}>
-                    <Card className="mb-3 shadow-sm">
-                      <Card.Body>
-                        <Card.Title>Row 1, Column 2</Card.Title>
-                        <Card.Text>Content for Row 1, Column 2.</Card.Text>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
-                <Row>
                   <Col md={12}>
                     <Card className="mb-3 shadow-sm">
-                      <Card.Body>
-                        <Card.Title>Row 2, Single Column</Card.Title>
-                        <Card.Text>Content for Row 2, Single Column.</Card.Text>
+                      <Card.Body className="text-center">
+                        <Card.Title className="text-danger mb-4">Coming Soon!</Card.Title>
+                        <Card.Text>
+                          The Company workflow is currently under development. rs0n is working diligently to bring you amazing features for company-wide asset discovery and analysis.
+                        </Card.Text>
+                        <Card.Text className="text-muted fst-italic mt-4">
+                          Please note that rs0n maintains this tool while balancing a full-time job and family life. This is a passion project provided free to the community, and your patience and kindness are greatly appreciated! 💝
+                        </Card.Text>
+                        <Card.Text className="text-danger mt-4">
+                          In the meantime, try out our fully-featured Wildcard workflow - it's packed with powerful reconnaissance capabilities!
+                        </Card.Text>
                       </Card.Body>
                     </Card>
                   </Col>
                 </Row>
               </div>
             )}
-            {(activeTarget.type === 'Wildcard' || activeTarget.type === 'Company') && (
+            {activeTarget.type === 'Wildcard' && (
               <div className="mb-4">
                 <h3 className="text-danger mb-3">Wildcard</h3>
                 <Accordion data-bs-theme="dark" className="mb-3">
@@ -1247,12 +1349,6 @@ function App() {
                               </a>
                             </ListGroup.Item>
                           </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
                         </ListGroup.Item>
                       </ListGroup>
                     </Accordion.Body>
@@ -1964,7 +2060,7 @@ function App() {
                     <Card className="shadow-sm" style={{ minHeight: '250px' }}>
                       <Card.Body className="d-flex flex-column justify-content-between text-center">
                         <div>
-                          <Card.Title className="text-danger fs-3 mb-3">Select Target URL</Card.Title>
+                          <Card.Title className="text-danger fs-3 mb-3">Add URL Scope Target</Card.Title>
                           <Card.Text className="text-white small fst-italic">
                             We now have a list of unique subdomains pointing to live web servers. The next step is to take screenshots of each web application and gather data to identify the target that will give us the greatest ROI as a bug bounty hunter. Focus on signs that the target may have vulnerabilities, may not be maintained, or offers a large attack surface.
                           </Card.Text>
@@ -2012,11 +2108,14 @@ function App() {
                             >
                               View Metadata
                             </Button>
-                            <Button variant="outline-danger" className="flex-fill">Calculate ROI</Button>
-                            <Button variant="outline-danger" className="flex-fill">ROI Report</Button>
-                          </div>
-                          <div className="w-100">
-                            <Button variant="danger" className="w-100">Select Target URL</Button>
+                            <Button 
+                              variant="outline-danger" 
+                              className="flex-fill"
+                              onClick={() => handleOpenROIReport()}
+                              disabled={!targetURLs || targetURLs.length === 0}
+                            >
+                              ROI Report
+                            </Button>
                           </div>
                         </div>
                       </Card.Body>
@@ -2025,31 +2124,43 @@ function App() {
                 </Row>
               </div>
             )}
-            {(activeTarget.type === 'Company' ||
-              activeTarget.type === 'Wildcard' ||
-              activeTarget.type === 'URL') && (
-                <div className="mb-4">
-                  <h3 className="text-danger">URL</h3>
-                  <Row>
-                    <Col md={12}>
-                      <Card className="mb-3 shadow-sm">
-                        <Card.Body>
-                          <Card.Title>Row 1, Single Column</Card.Title>
-                          <Card.Text>Details about the URL go here.</Card.Text>
-                        </Card.Body>
-                      </Card>
-                    </Col>
-                  </Row>
-                </div>
-              )}
+            {activeTarget.type === 'URL' && (
+              <div className="mb-4">
+                <h3 className="text-danger">URL</h3>
+                <Row>
+                  <Col md={12}>
+                    <Card className="mb-3 shadow-sm">
+                      <Card.Body className="text-center">
+                        <Card.Title className="text-danger mb-4">Coming Soon!</Card.Title>
+                        <Card.Text>
+                          The URL workflow is currently under development. rs0n is working hard to create powerful features for analyzing individual target URLs.
+                        </Card.Text>
+                        <Card.Text className="text-muted fst-italic mt-4">
+                          Please note that rs0n maintains this tool while balancing a full-time job and family life. This is a passion project provided free to the community, and your patience and kindness are greatly appreciated! 💝
+                        </Card.Text>
+                        <Card.Text className="text-danger mt-4">
+                          In the meantime, try out our fully-featured Wildcard workflow - it's packed with powerful reconnaissance capabilities!
+                        </Card.Text>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
+              </div>
+            )}
           </div>
         </Fade>
       )}
       <MetaDataModal
         showMetaDataModal={showMetaDataModal}
         handleCloseMetaDataModal={handleCloseMetaDataModal}
+        metaDataResults={mostRecentMetaDataScan}
         targetURLs={targetURLs}
         setTargetURLs={setTargetURLs}
+      />
+      <ROIReport
+        show={showROIReport}
+        onHide={handleCloseROIReport}
+        targetURLs={targetURLs}
       />
     </Container>
   );

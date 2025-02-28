@@ -72,6 +72,7 @@ type TargetURL struct {
 	DNSSRVRecords       []string       `json:"dns_srv_records"`
 	KatanaResults       []byte         `json:"katana_results"`
 	FfufResults         []byte         `json:"ffuf_results"`
+	ROIScore            int            `json:"roi_score"`
 }
 
 type TargetURLResponse struct {
@@ -108,6 +109,7 @@ type TargetURLResponse struct {
 	DNSSRVRecords       []string               `json:"dns_srv_records"`
 	KatanaResults       []string               `json:"katana_results"`
 	FfufResults         map[string]interface{} `json:"ffuf_results"`
+	ROIScore            int                    `json:"roi_score"`
 }
 
 // RunHttpxScan handles the HTTP request to start a new httpx scan
@@ -825,8 +827,8 @@ func UpdateTargetURLFromHttpx(scopeTargetID string, httpxData map[string]interfa
 			`INSERT INTO target_urls (
 				url, status_code, title, web_server, technologies, 
 				content_length, scope_target_id, newly_discovered, no_longer_live,
-				findings_json
-			) VALUES ($1, $2, $3, $4, $5::text[], $6, $7, true, false, $8::jsonb)`,
+				findings_json, roi_score
+			) VALUES ($1, $2, $3, $4, $5::text[], $6, $7, true, false, $8::jsonb, 50)`,
 			url,
 			httpxData["status_code"],
 			httpxData["title"],
@@ -1030,10 +1032,39 @@ func GetTargetURLsForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			DNSSRVRecords:       targetURL.DNSSRVRecords,
 			KatanaResults:       katanaResults,
 			FfufResults:         ffufResults,
+			ROIScore:            targetURL.ROIScore,
 		}
 		targetURLs = append(targetURLs, response)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(targetURLs)
+}
+
+// UpdateTargetURLROIScore updates the ROI score for a target URL
+func UpdateTargetURLROIScore(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	targetID := vars["id"]
+	if targetID == "" {
+		http.Error(w, "Target URL ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var payload struct {
+		ROIScore int `json:"roi_score"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	query := `UPDATE target_urls SET roi_score = $1 WHERE id = $2`
+	_, err := dbPool.Exec(context.Background(), query, payload.ROIScore, targetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to update ROI score: %v", err)
+		http.Error(w, "Failed to update ROI score", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

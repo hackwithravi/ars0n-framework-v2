@@ -39,7 +39,7 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
     {
       type: 'Company',
       description: 'Any asset owned by an organization',
-      disabled: true
+      disabled: false
     },
     {
       type: 'Wildcard',
@@ -49,7 +49,7 @@ function AddScopeTargetModal({ show, handleClose, selections, handleSelect, hand
     {
       type: 'URL',
       description: 'Any attack vector targeting a single domain',
-      disabled: true
+      disabled: false
     }
   ];
 

@@ -374,10 +374,24 @@ func createTables() {
 		}
 	}
 
-	deletePendingScansQuery := `DELETE FROM amass_scans WHERE status = 'pending';`
+	deletePendingScansQuery := `
+		DELETE FROM amass_scans WHERE status = 'pending';
+		DELETE FROM httpx_scans WHERE status = 'pending';
+		DELETE FROM gau_scans WHERE status = 'pending';
+		DELETE FROM sublist3r_scans WHERE status = 'pending';
+		DELETE FROM assetfinder_scans WHERE status = 'pending';
+		DELETE FROM ctl_scans WHERE status = 'pending';
+		DELETE FROM subfinder_scans WHERE status = 'pending';
+		DELETE FROM shuffledns_scans WHERE status = 'pending';
+		DELETE FROM cewl_scans WHERE status = 'pending';
+		DELETE FROM shufflednscustom_scans WHERE status = 'pending';
+		DELETE FROM gospider_scans WHERE status = 'pending';
+		DELETE FROM subdomainizer_scans WHERE status = 'pending';
+		DELETE FROM nuclei_screenshots WHERE status = 'pending';
+		DELETE FROM metadata_scans WHERE status = 'pending';`
 	_, err := dbPool.Exec(context.Background(), deletePendingScansQuery)
 	if err != nil {
-		log.Fatalf("[ERROR] Failed to delete pending Amass scans: %v", err)
+		log.Fatalf("[ERROR] Failed to delete pending scans: %v", err)
 	}
-	log.Println("[INFO] Deleted any Amass scans with status 'pending'")
+	log.Println("[INFO] Deleted any scans with status 'pending'")
 }

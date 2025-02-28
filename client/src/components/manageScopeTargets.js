@@ -11,7 +11,7 @@ function ManageScopeTargets({
     <>
       <Row className="mb-3">
         <Col>
-          <h3 className="text-secondary">Scope Targets</h3>
+          <h3 className="text-secondary">Active Scope Target</h3>
         </Col>
         <Col className="text-end">
           <Button variant="outline-danger" onClick={handleOpen}>
@@ -29,7 +29,7 @@ function ManageScopeTargets({
               <Card.Body>
                 <Card.Text className="d-flex justify-content-between text-danger">
                   <span style={{ fontSize: '22px' }}>
-                    Active Target: <strong>{activeTarget.scope_target}</strong>
+                    <strong>{activeTarget.scope_target}</strong>
                   </span>
                   <span>
                     <img src={getTypeIcon(activeTarget.type)} alt={activeTarget.type} style={{ width: '30px' }} />

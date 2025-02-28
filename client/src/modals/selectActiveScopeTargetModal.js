@@ -9,7 +9,7 @@ function SelectActiveScopeTargetModal({
   handleDelete,
 }) {
   const sortedTargets = [...scopeTargets].sort((a, b) => 
-    new Date(a.created_at) - new Date(b.created_at)
+    a.scope_target.localeCompare(b.scope_target)
   );
 
   return (
@@ -26,7 +26,9 @@ function SelectActiveScopeTargetModal({
               onClick={() => handleActiveSelect(target)}
               className={activeTarget?.id === target.id ? 'bg-danger text-white' : ''}
             >
-              <span>{target.scope_target}</span>
+              <div className="d-flex align-items-center">
+                <span>{target.scope_target}</span>
+              </div>
             </ListGroup.Item>
           ))}
         </ListGroup>
