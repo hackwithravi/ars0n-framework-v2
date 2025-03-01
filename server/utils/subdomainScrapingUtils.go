@@ -841,12 +841,37 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 	log.Printf("[INFO] Starting CTL scan execution for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
+	// First, check if the getsubdomain binary exists
+	checkCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ctl-1",
+		"which", "getsubdomain",
+	)
+	log.Printf("[DEBUG] Checking for getsubdomain binary with command: %s", checkCmd.String())
+
+	var checkStdout, checkStderr bytes.Buffer
+	checkCmd.Stdout = &checkStdout
+	checkCmd.Stderr = &checkStderr
+
+	if err := checkCmd.Run(); err != nil {
+		log.Printf("[ERROR] getsubdomain binary not found in container: %v", err)
+		log.Printf("[ERROR] Check command stderr: %s", checkStderr.String())
+		log.Printf("[ERROR] Check command stdout: %s", checkStdout.String())
+		log.Printf("[ERROR] This likely means the CTL container is not properly set up")
+		UpdateCTLScanStatus(scanID, "error", "", "getsubdomain binary not found in container. Please ensure the CTL container is properly set up.", checkCmd.String(), "0s")
+		return
+	}
+
+	binaryPath := strings.TrimSpace(checkStdout.String())
+	log.Printf("[INFO] Found getsubdomain binary at: %s", binaryPath)
+
 	cmd := exec.Command(
 		"docker", "exec",
 		"ars0n-framework-v2-ctl-1",
-		"getsubdomain", domain,
+		binaryPath, domain,
 	)
 	log.Printf("[DEBUG] Constructed command: %s", cmd.String())
+	log.Printf("[DEBUG] Full command details - Path: %s, Args: %v", cmd.Path, cmd.Args)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -859,6 +884,10 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 
 	if err != nil {
 		log.Printf("[ERROR] CTL scan failed for domain %s: %v", domain, err)
+		log.Printf("[ERROR] Error type: %T", err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			log.Printf("[ERROR] Exit code: %d", exitErr.ExitCode())
+		}
 		log.Printf("[ERROR] Command stderr: %s", stderr.String())
 		UpdateCTLScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
 		return
