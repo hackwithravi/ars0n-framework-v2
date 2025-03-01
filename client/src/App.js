@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Toast } from 'react-bootstrap';
-import { MdCheckCircle } from 'react-icons/md';
+import { Container, Toast, Modal, Table, ListGroup, Fade, Card, Row, Col, Button, Accordion } from 'react-bootstrap';
+import { MdCheckCircle, MdCopyAll } from 'react-icons/md';
 import { ToastContainer } from 'react-bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap-icons/font/bootstrap-icons.css';
 import { calculateROIScore } from './components/ROIReport';
 import AddScopeTargetModal from './modals/AddScopeTargetModal';
 import SelectActiveScopeTargetModal from './modals/SelectActiveScopeTargetModal';
@@ -25,6 +27,7 @@ import ScreenshotResultsModal from './modals/ScreenshotResultsModal';
 import MetaDataModal from './modals/MetaDataModal';
 import ROIReport from './components/ROIReport';
 import Ars0nFrameworkHeader from './components/Ars0nFrameworkHeader';
+import validateInput from './utils/validateInput';
 import {
   fetchAmassScans,
   fetchHttpxScans,
@@ -57,7 +60,12 @@ import {
   initiateMetaDataScan,
   getExecutionTime,
   getResultLength,
-  getLatestScanId
+  getLatestScanId,
+  copyToClipboard,
+  getTypeIcon,
+  getLastScanDate,
+  getLatestScanStatus,
+  getLatestScanTime
 } from './utils/scanUtils';
 
 const getHttpxResultsCount = (scan) => {
