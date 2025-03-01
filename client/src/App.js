@@ -124,23 +124,43 @@ const calculateROIScore = (targetURL) => {
   }
 
   let ffufCount = 0;
+  let ffufEndpoints = [];
   if (targetURL.ffuf_results) {
     if (typeof targetURL.ffuf_results === 'object') {
-      ffufCount = targetURL.ffuf_results.endpoints?.length || Object.keys(targetURL.ffuf_results).length || 0;
+      ffufEndpoints = targetURL.ffuf_results.endpoints || [];
+      ffufCount = ffufEndpoints.length || Object.keys(targetURL.ffuf_results).length || 0;
     } else if (typeof targetURL.ffuf_results === 'string') {
       try {
         const parsed = JSON.parse(targetURL.ffuf_results);
-        ffufCount = parsed.endpoints?.length || Object.keys(parsed).length || 0;
+        ffufEndpoints = parsed.endpoints || [];
+        ffufCount = ffufEndpoints.length || Object.keys(parsed).length || 0;
       } catch {
         ffufCount = targetURL.ffuf_results.split('\n').filter(line => line.trim()).length;
       }
     }
   }
   
-  if (targetURL.status_code === 404) {
+  if (targetURL.status_code === 404 && ffufCount >= 3) {
     score += 50;
   } else if (ffufCount > 0) {
-    score += ffufCount * 2;
+    if (ffufCount > 25) {
+      // Check for duplicate response sizes
+      const responseSizes = ffufEndpoints.map(endpoint => endpoint.response_size);
+      const sizeFrequency = {};
+      responseSizes.forEach(size => {
+        sizeFrequency[size] = (sizeFrequency[size] || 0) + 1;
+      });
+      
+      // Find if any response size appears in 50% or more of endpoints
+      const maxFrequency = Math.max(...Object.values(sizeFrequency));
+      if (maxFrequency >= ffufCount * 0.5) {
+        score -= 10; // Penalize for likely false positives
+      } else {
+        score += ffufCount * 2;
+      }
+    } else {
+      score += ffufCount * 2;
+    }
   }
   
   const techCount = targetURL.technologies?.length || 0;
