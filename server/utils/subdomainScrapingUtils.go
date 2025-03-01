@@ -841,86 +841,56 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 	log.Printf("[INFO] Starting CTL scan execution for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
-	// First, check if the getsubdomain binary exists
-	checkCmd := exec.Command(
-		"docker", "exec",
-		"ars0n-framework-v2-ctl-1",
-		"which", "getsubdomain",
-	)
-	log.Printf("[DEBUG] Checking for getsubdomain binary with command: %s", checkCmd.String())
+	// Make HTTP request to crt.sh
+	url := fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain)
+	client := &http.Client{Timeout: 30 * time.Second}
 
-	var checkStdout, checkStderr bytes.Buffer
-	checkCmd.Stdout = &checkStdout
-	checkCmd.Stderr = &checkStderr
-
-	if err := checkCmd.Run(); err != nil {
-		log.Printf("[ERROR] getsubdomain binary not found in container: %v", err)
-		log.Printf("[ERROR] Check command stderr: %s", checkStderr.String())
-		log.Printf("[ERROR] Check command stdout: %s", checkStdout.String())
-		log.Printf("[ERROR] This likely means the CTL container is not properly set up")
-		UpdateCTLScanStatus(scanID, "error", "", "getsubdomain binary not found in container. Please ensure the CTL container is properly set up.", checkCmd.String(), "0s")
-		return
-	}
-
-	binaryPath := strings.TrimSpace(checkStdout.String())
-	log.Printf("[INFO] Found getsubdomain binary at: %s", binaryPath)
-
-	cmd := exec.Command(
-		"docker", "exec",
-		"ars0n-framework-v2-ctl-1",
-		binaryPath, domain,
-	)
-	log.Printf("[DEBUG] Constructed command: %s", cmd.String())
-	log.Printf("[DEBUG] Full command details - Path: %s, Args: %v", cmd.Path, cmd.Args)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	log.Printf("[INFO] Executing CTL command for domain: %s", domain)
-	err := cmd.Run()
-	execTime := time.Since(startTime).String()
-	log.Printf("[DEBUG] Command execution time: %s", execTime)
-
+	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[ERROR] CTL scan failed for domain %s: %v", domain, err)
-		log.Printf("[ERROR] Error type: %T", err)
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			log.Printf("[ERROR] Exit code: %d", exitErr.ExitCode())
-		}
-		log.Printf("[ERROR] Command stderr: %s", stderr.String())
-		UpdateCTLScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
+		log.Printf("[ERROR] Failed to make request to crt.sh: %v", err)
+		UpdateCTLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to make request to crt.sh: %v", err), "", time.Since(startTime).String())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[ERROR] crt.sh returned non-200 status code: %d", resp.StatusCode)
+		UpdateCTLScanStatus(scanID, "error", "", fmt.Sprintf("crt.sh returned status code: %d", resp.StatusCode), "", time.Since(startTime).String())
 		return
 	}
 
-	log.Printf("[INFO] CTL scan completed successfully, processing results")
-	log.Printf("[DEBUG] Raw stdout length: %d bytes", len(stdout.String()))
+	var results []struct {
+		NameValue string `json:"name_value"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		log.Printf("[ERROR] Failed to decode crt.sh response: %v", err)
+		UpdateCTLScanStatus(scanID, "error", "", fmt.Sprintf("Failed to decode crt.sh response: %v", err), "", time.Since(startTime).String())
+		return
+	}
 
 	// Process and deduplicate results
-	lines := strings.Split(stdout.String(), "\n")
-	log.Printf("[DEBUG] Found %d raw lines in output", len(lines))
-
 	uniqueSubdomains := make(map[string]bool)
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" && strings.HasSuffix(line, domain) {
-			uniqueSubdomains[line] = true
+	for _, result := range results {
+		// Convert to lowercase and remove wildcard prefix
+		subdomain := strings.ToLower(strings.TrimPrefix(result.NameValue, "*."))
+		if strings.HasSuffix(subdomain, domain) {
+			uniqueSubdomains[subdomain] = true
 		}
 	}
-	log.Printf("[INFO] Found %d unique subdomains", len(uniqueSubdomains))
 
 	// Convert map to sorted slice
-	var results []string
+	var subdomains []string
 	for subdomain := range uniqueSubdomains {
-		results = append(results, subdomain)
+		subdomains = append(subdomains, subdomain)
 	}
-	sort.Strings(results)
+	sort.Strings(subdomains)
 
 	// Join results with newlines
-	result := strings.Join(results, "\n")
+	result := strings.Join(subdomains, "\n")
 	log.Printf("[DEBUG] Final processed result length: %d bytes", len(result))
 
-	UpdateCTLScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
+	UpdateCTLScanStatus(scanID, "success", result, "", fmt.Sprintf("GET %s", url), time.Since(startTime).String())
 	log.Printf("[INFO] CTL scan completed and results stored successfully for domain %s", domain)
 }
 

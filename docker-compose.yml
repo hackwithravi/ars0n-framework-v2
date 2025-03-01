@@ -77,16 +77,6 @@ services:
     networks:
       - ars0n-network
 
-  ctl:
-    container_name: ars0n-framework-v2-ctl-1
-    build: ./docker/ctl
-    depends_on:
-      - api
-    entrypoint: ["sleep", "infinity"]
-    restart: "no"
-    networks:
-      - ars0n-network
-
   subfinder:
     container_name: ars0n-framework-v2-subfinder-1
     build: ./docker/subfinder
