@@ -45,47 +45,24 @@ const calculateROIScore = (targetURL) => {
   }
 
   let ffufCount = 0;
-  let ffufEndpoints = [];
   if (targetURL.ffuf_results) {
     if (typeof targetURL.ffuf_results === 'object') {
-      ffufEndpoints = targetURL.ffuf_results.endpoints || [];
-      ffufCount = ffufEndpoints.length || Object.keys(targetURL.ffuf_results).length || 0;
+      ffufCount = targetURL.ffuf_results.endpoints?.length || Object.keys(targetURL.ffuf_results).length || 0;
     } else if (typeof targetURL.ffuf_results === 'string') {
       try {
         const parsed = JSON.parse(targetURL.ffuf_results);
-        ffufEndpoints = parsed.endpoints || [];
-        ffufCount = ffufEndpoints.length || Object.keys(parsed).length || 0;
+        ffufCount = parsed.endpoints?.length || Object.keys(parsed).length || 0;
       } catch {
         ffufCount = targetURL.ffuf_results.split('\n').filter(line => line.trim()).length;
       }
     }
   }
   
-  if (targetURL.status_code === 404 && ffufCount >= 3) {
-    score += 50;
-    console.log(`➕ 50 points (404 status code with ${ffufCount} fuzzed endpoints)`);
-  } else if (ffufCount > 0) {
-    if (ffufCount > 25) {
-      // Check for duplicate response sizes
-      const responseSizes = ffufEndpoints.map(endpoint => endpoint.response_size);
-      const sizeFrequency = {};
-      responseSizes.forEach(size => {
-        sizeFrequency[size] = (sizeFrequency[size] || 0) + 1;
-      });
-      
-      // Find if any response size appears in 50% or more of endpoints
-      const maxFrequency = Math.max(...Object.values(sizeFrequency));
-      if (maxFrequency >= ffufCount * 0.5) {
-        score -= 10;
-        console.log(`➖ 10 points (${ffufCount} fuzzed endpoints with ${Math.round(maxFrequency/ffufCount * 100)}% duplicate response sizes - likely false positives)`);
-      } else {
-        score += ffufCount * 2;
-        console.log(`➕ ${ffufCount * 2} points (${ffufCount} unique fuzzed endpoints)`);
-      }
-    } else {
-      score += ffufCount * 2;
-      console.log(`➕ ${ffufCount * 2} points (${ffufCount} fuzzed endpoints)`);
-    }
+  if (ffufCount > 3) {
+    const extraEndpoints = ffufCount - 3;
+    const fuzzPoints = Math.min(15, extraEndpoints * 3);
+    score += fuzzPoints;
+    console.log(`➕ ${fuzzPoints} points (${extraEndpoints} fuzzed endpoints above threshold of 3)`);
   }
   
   const techCount = targetURL.technologies?.length || 0;

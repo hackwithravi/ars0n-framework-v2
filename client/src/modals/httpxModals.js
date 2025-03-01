@@ -1,4 +1,3 @@
-import React from 'react';
 import { Modal, Table } from 'react-bootstrap';
 
 export const HttpxResultsModal = ({ showHttpxResultsModal, handleCloseHttpxResultsModal, httpxResults }) => {
