@@ -1061,24 +1061,6 @@ func ExecuteFfufScan(url string, scopeTargetID string) error {
 	log.Printf("[INFO] Starting ffuf scan for URL: %s", url)
 	startTime := time.Now()
 
-	// Parse the base URL to get the list of URLs to scan
-	var urlsToScan []string
-	err := dbPool.QueryRow(context.Background(),
-		`SELECT katana_results FROM target_urls WHERE url = $1 AND scope_target_id = $2`,
-		url, scopeTargetID).Scan(&urlsToScan)
-
-	if err != nil && err != pgx.ErrNoRows {
-		return fmt.Errorf("failed to get katana results: %v", err)
-	}
-
-	// If no Katana results, just scan the base URL
-	if len(urlsToScan) == 0 {
-		urlsToScan = []string{url}
-	}
-
-	log.Printf("[INFO] Starting ffuf scans - Total URLs to scan: %d", len(urlsToScan))
-	completedFfuf := 0
-
 	// Create a temporary directory for output
 	tempDir := filepath.Join("/tmp", fmt.Sprintf("ffuf-%s", uuid.New().String()))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -1117,91 +1099,91 @@ func ExecuteFfufScan(url string, scopeTargetID string) error {
 		log.Printf("[DEBUG] Wordlist verified in container: %s", string(out))
 	}
 
-	for _, targetURL := range urlsToScan {
-		completedFfuf++
-		log.Printf("[INFO] Running ffuf scan for URL: %s (%d/%d)", targetURL, completedFfuf, len(urlsToScan))
+	// Run ffuf scan only on the base target URL
+	fuzzyURL := fmt.Sprintf("%s/FUZZ", url)
+	cmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"ffuf",
+		"-w", "/wordlist.txt",
+		"-u", fuzzyURL,
+		"-mc", "all",
+		"-o", "/output.json",
+		"-of", "json",
+		"-ac",
+		"-c",
+		"-r",
+		"-t", "50",
+	)
 
-		// Run ffuf scan
-		fuzzyURL := fmt.Sprintf("%s/FUZZ", targetURL)
-		cmd := exec.Command(
-			"docker", "exec",
-			"ars0n-framework-v2-ffuf-1",
-			"ffuf",
-			"-w", "/wordlist.txt",
-			"-u", fuzzyURL,
-			"-mc", "all",
-			"-o", "/output.json",
-			"-of", "json",
-			"-ac",
-			"-c",
-			"-r",
-			"-t", "50",
-		)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-
-		log.Printf("[DEBUG] Running ffuf command: %s", cmd.String())
-		if err := cmd.Run(); err != nil {
-			log.Printf("[ERROR] ffuf scan failed for URL %s (%d/%d): %v\nStderr: %s",
-				targetURL, completedFfuf, len(urlsToScan), err, stderr.String())
-			continue
-		}
-		log.Printf("[INFO] Completed ffuf scan for URL: %s (%d/%d)", targetURL, completedFfuf, len(urlsToScan))
-
-		// Read and parse results
-		resultBytes, err := os.ReadFile(filepath.Join(tempDir, "output.json"))
-		if err != nil {
-			log.Printf("[ERROR] Failed to read ffuf results file at %s: %v", filepath.Join(tempDir, "output.json"), err)
-			return fmt.Errorf("failed to read ffuf results: %v", err)
-		}
-		log.Printf("[DEBUG] Read %d bytes from results file", len(resultBytes))
-
-		var results struct {
-			Results []FfufResult `json:"results"`
-		}
-		if err := json.Unmarshal(resultBytes, &results); err != nil {
-			log.Printf("[ERROR] Failed to parse ffuf results JSON: %v\nContent: %s", err, string(resultBytes))
-			return fmt.Errorf("failed to parse ffuf results: %v", err)
-		}
-		log.Printf("[DEBUG] Successfully parsed %d results from JSON", len(results.Results))
-
-		// Filter and format results
-		var endpoints []map[string]interface{}
-		for _, result := range results.Results {
-			endpoint := map[string]interface{}{
-				"path":   result.Input.FUZZ,
-				"status": result.Status,
-				"size":   result.Length,
-				"words":  result.Words,
-				"lines":  result.Lines,
-			}
-			endpoints = append(endpoints, endpoint)
-		}
-
-		// Store results in database
-		ffufResults := map[string]interface{}{
-			"endpoints": endpoints,
-		}
-		ffufResultsJSON, err := json.Marshal(ffufResults)
-		if err != nil {
-			log.Printf("[ERROR] Failed to marshal ffuf results to JSON: %v", err)
-			return fmt.Errorf("failed to marshal ffuf results: %v", err)
-		}
-
-		_, err = dbPool.Exec(context.Background(),
-			`UPDATE target_urls 
-			 SET ffuf_results = $1::jsonb 
-			 WHERE url = $2 AND scope_target_id = $3`,
-			string(ffufResultsJSON), targetURL, scopeTargetID)
-		if err != nil {
-			log.Printf("[ERROR] Failed to store ffuf results in database: %v", err)
-			return fmt.Errorf("failed to store ffuf results: %v", err)
-		}
-
-		log.Printf("[INFO] Successfully completed ffuf scan for %s in %s. Found %d endpoints.",
-			targetURL, time.Since(startTime), len(endpoints))
+	log.Printf("[DEBUG] Running ffuf command: %s", cmd.String())
+	if err := cmd.Run(); err != nil {
+		log.Printf("[ERROR] ffuf scan failed for URL %s: %v\nStderr: %s",
+			url, err, stderr.String())
+		return fmt.Errorf("ffuf scan failed: %v", err)
 	}
+	log.Printf("[INFO] Completed ffuf scan for URL: %s", url)
+
+	// Read and parse results
+	outputCmd := exec.Command(
+		"docker", "exec",
+		"ars0n-framework-v2-ffuf-1",
+		"cat", "/output.json",
+	)
+	resultBytes, err := outputCmd.Output()
+	if err != nil {
+		log.Printf("[ERROR] Failed to read ffuf results file: %v", err)
+		return fmt.Errorf("failed to read ffuf results: %v", err)
+	}
+	log.Printf("[DEBUG] Read %d bytes from results file", len(resultBytes))
+
+	var results struct {
+		Results []FfufResult `json:"results"`
+	}
+	if err := json.Unmarshal(resultBytes, &results); err != nil {
+		log.Printf("[ERROR] Failed to parse ffuf results JSON: %v\nContent: %s", err, string(resultBytes))
+		return fmt.Errorf("failed to parse ffuf results: %v", err)
+	}
+	log.Printf("[DEBUG] Successfully parsed %d results from JSON", len(results.Results))
+
+	// Filter and format results
+	var endpoints []map[string]interface{}
+	for _, result := range results.Results {
+		endpoint := map[string]interface{}{
+			"path":   result.Input.FUZZ,
+			"status": result.Status,
+			"size":   result.Length,
+			"words":  result.Words,
+			"lines":  result.Lines,
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+
+	// Store results in database
+	ffufResults := map[string]interface{}{
+		"endpoints": endpoints,
+	}
+	ffufResultsJSON, err := json.Marshal(ffufResults)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal ffuf results to JSON: %v", err)
+		return fmt.Errorf("failed to marshal ffuf results: %v", err)
+	}
+	log.Printf("[DEBUG] Storing ffuf results in database: %s", string(ffufResultsJSON))
+
+	_, err = dbPool.Exec(context.Background(),
+		`UPDATE target_urls 
+		 SET ffuf_results = $1::jsonb 
+		 WHERE url = $2 AND scope_target_id = $3`,
+		string(ffufResultsJSON), url, scopeTargetID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to store ffuf results in database: %v", err)
+		return fmt.Errorf("failed to store ffuf results: %v", err)
+	}
+	log.Printf("[INFO] Successfully stored ffuf results in database for URL %s. Scan completed in %s. Found %d endpoints.",
+		url, time.Since(startTime), len(endpoints))
 
 	return nil
 }

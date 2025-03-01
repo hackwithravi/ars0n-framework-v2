@@ -98,16 +98,20 @@ const MetaDataModal = ({
                   console.log('[DEBUG] Ffuf results type:', typeof url.ffuf_results);
                   if (typeof url.ffuf_results === 'object' && url.ffuf_results.endpoints) {
                     ffufEndpoints = url.ffuf_results.endpoints;
-                    console.log('[DEBUG] Ffuf results is already an object with endpoints');
+                    console.log('[DEBUG] Ffuf results is already an object with endpoints:', ffufEndpoints);
                   } else if (typeof url.ffuf_results === 'string') {
                     try {
                       const parsed = JSON.parse(url.ffuf_results);
+                      console.log('[DEBUG] Parsed ffuf results:', parsed);
                       ffufEndpoints = parsed.endpoints || [];
-                      console.log('[DEBUG] Parsed ffuf results:', ffufEndpoints);
+                      console.log('[DEBUG] Extracted endpoints:', ffufEndpoints);
                     } catch (error) {
                       console.error('Error parsing ffuf results:', error);
+                      console.log('[DEBUG] Failed to parse ffuf results string:', url.ffuf_results);
                     }
                   }
+                } else {
+                  console.log('[DEBUG] No ffuf results found for URL:', url.url);
                 }
 
                 return (
