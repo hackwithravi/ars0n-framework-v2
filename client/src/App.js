@@ -1,83 +1,189 @@
-import React, { useState, useEffect } from 'react';
-import { Container, Toast, Modal, Table, ListGroup, Fade, Card, Row, Col, Button, Accordion } from 'react-bootstrap';
-import { MdCheckCircle, MdCopyAll } from 'react-icons/md';
-import { ToastContainer } from 'react-bootstrap';
+import { useState, useEffect } from 'react';
+import AddScopeTargetModal from './modals/addScopeTargetModal.js';
+import SelectActiveScopeTargetModal from './modals/selectActiveScopeTargetModal.js';
+import { DNSRecordsModal, SubdomainsModal, CloudDomainsModal, InfrastructureMapModal } from './modals/amassModals.js';
+import { HttpxResultsModal } from './modals/httpxModals.js';
+import { GauResultsModal } from './modals/gauModals.js';
+import { Sublist3rResultsModal } from './modals/sublist3rModals.js';
+import { AssetfinderResultsModal } from './modals/assetfinderModals.js';
+import { SubfinderResultsModal } from './modals/subfinderModals.js';
+import { ShuffleDNSResultsModal } from './modals/shuffleDNSModals.js';
+import ScreenshotResultsModal from './modals/ScreenshotResultsModal.js';
+import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
+import ManageScopeTargets from './components/manageScopeTargets.js';
+import fetchAmassScans from './utils/fetchAmassScans.js';
+import {
+  Container,
+  Fade,
+  Card,
+  Row,
+  Col,
+  Button,
+  ListGroup,
+  Accordion,
+  Modal,
+  Table,
+  Toast,
+  ToastContainer,
+} from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
-import { calculateROIScore } from './components/ROIReport';
-import AddScopeTargetModal from './modals/AddScopeTargetModal';
-import SelectActiveScopeTargetModal from './modals/SelectActiveScopeTargetModal';
-import DNSRecordsModal from './modals/DNSRecordsModal';
-import SubdomainsModal from './modals/SubdomainsModal';
-import CloudDomainsModal from './modals/CloudDomainsModal';
-import InfrastructureMapModal from './modals/InfrastructureMapModal';
-import HttpxResultsModal from './modals/HttpxResultsModal';
-import GauResultsModal from './modals/GauResultsModal';
-import Sublist3rResultsModal from './modals/Sublist3rResultsModal';
-import AssetfinderResultsModal from './modals/AssetfinderResultsModal';
-import CTLResultsModal from './modals/CTLResultsModal';
-import SubfinderResultsModal from './modals/SubfinderResultsModal';
-import ShuffleDNSResultsModal from './modals/ShuffleDNSResultsModal';
-import ReconResultsModal from './modals/ReconResultsModal';
-import UniqueSubdomainsModal from './modals/UniqueSubdomainsModal';
-import CeWLResultsModal from './modals/CeWLResultsModal';
-import GoSpiderResultsModal from './modals/GoSpiderResultsModal';
-import SubdomainizerResultsModal from './modals/SubdomainizerResultsModal';
-import ScreenshotResultsModal from './modals/ScreenshotResultsModal';
-import MetaDataModal from './modals/MetaDataModal';
-import ROIReport from './components/ROIReport';
-import Ars0nFrameworkHeader from './components/Ars0nFrameworkHeader';
-import validateInput from './utils/validateInput';
+import initiateAmassScan from './utils/initiateAmassScan';
+import monitorScanStatus from './utils/monitorScanStatus';
+import validateInput from './utils/validateInput.js';
 import {
-  fetchAmassScans,
-  fetchHttpxScans,
-  fetchConsolidatedSubdomains,
-  monitorScanStatus,
-  monitorHttpxScanStatus,
-  monitorGauScanStatus,
-  monitorSublist3rScanStatus,
-  monitorAssetfinderScanStatus,
-  monitorCTLScanStatus,
-  monitorSubfinderScanStatus,
-  monitorShuffleDNSScanStatus,
-  monitorCeWLScanStatus,
-  monitorGoSpiderScanStatus,
-  monitorSubdomainizerScanStatus,
-  monitorNucleiScreenshotScanStatus,
-  monitorMetaDataScanStatus,
-  initiateAmassScan,
-  initiateHttpxScan,
-  initiateGauScan,
-  initiateSublist3rScan,
-  initiateAssetfinderScan,
-  initiateCTLScan,
-  initiateSubfinderScan,
-  initiateShuffleDNSScan,
-  initiateCeWLScan,
-  initiateGoSpiderScan,
-  initiateSubdomainizerScan,
-  initiateNucleiScreenshotScan,
-  initiateMetaDataScan,
-  getExecutionTime,
-  getResultLength,
-  getLatestScanId,
-  copyToClipboard,
   getTypeIcon,
   getLastScanDate,
   getLatestScanStatus,
-  getLatestScanTime
-} from './utils/scanUtils';
+  getLatestScanTime,
+  getLatestScanId,
+  getExecutionTime,
+  getResultLength,
+  copyToClipboard,
+} from './utils/miscUtils.js';
+import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
+import initiateHttpxScan from './utils/initiateHttpxScan';
+import monitorHttpxScanStatus from './utils/monitorHttpxScanStatus';
+import initiateGauScan from './utils/initiateGauScan.js';
+import monitorGauScanStatus from './utils/monitorGauScanStatus.js';
+import initiateSublist3rScan from './utils/initiateSublist3rScan.js';
+import monitorSublist3rScanStatus from './utils/monitorSublist3rScanStatus.js';
+import initiateAssetfinderScan from './utils/initiateAssetfinderScan.js';
+import monitorAssetfinderScanStatus from './utils/monitorAssetfinderScanStatus.js';
+import initiateCTLScan from './utils/initiateCTLScan.js';
+import monitorCTLScanStatus from './utils/monitorCTLScanStatus.js';
+import initiateSubfinderScan from './utils/initiateSubfinderScan.js';
+import monitorSubfinderScanStatus from './utils/monitorSubfinderScanStatus.js';
+import { CTLResultsModal } from './modals/CTLResultsModal';
+import { ReconResultsModal } from './modals/ReconResultsModal';
+import { UniqueSubdomainsModal } from './modals/UniqueSubdomainsModal';
+import consolidateSubdomains from './utils/consolidateSubdomains.js';
+import fetchConsolidatedSubdomains from './utils/fetchConsolidatedSubdomains.js';
+import monitorShuffleDNSScanStatus from './utils/monitorShuffleDNSScanStatus.js';
+import initiateShuffleDNSScan from './utils/initiateShuffleDNSScan.js';
+import initiateCeWLScan from './utils/initiateCeWLScan';
+import monitorCeWLScanStatus from './utils/monitorCeWLScanStatus';
+import { CeWLResultsModal } from './modals/cewlModals';
+import { GoSpiderResultsModal } from './modals/gospiderModals';
+import initiateGoSpiderScan from './utils/initiateGoSpiderScan';
+import monitorGoSpiderScanStatus from './utils/monitorGoSpiderScanStatus';
+import { SubdomainizerResultsModal } from './modals/subdomainizerModals';
+import initiateSubdomainizerScan from './utils/initiateSubdomainizerScan';
+import monitorSubdomainizerScanStatus from './utils/monitorSubdomainizerScanStatus';
+import initiateNucleiScreenshotScan from './utils/initiateNucleiScreenshotScan';
+import monitorNucleiScreenshotScanStatus from './utils/monitorNucleiScreenshotScanStatus';
+import initiateMetaDataScan from './utils/initiateMetaDataScan';
+import monitorMetaDataScanStatus from './utils/monitorMetaDataScanStatus';
+import MetaDataModal from './modals/MetaDataModal.js';
+import fetchHttpxScans from './utils/fetchHttpxScans';
+import ROIReport from './components/ROIReport';
 
+// Add helper function
 const getHttpxResultsCount = (scan) => {
-  try {
-    if (typeof scan.results === 'string') {
-      return scan.results.split('\n').filter(line => line.trim()).length;
-    }
-    return 0;
-  } catch (error) {
-    console.error('Error getting httpx results count:', error);
-    return 0;
+  if (!scan?.result?.String) return 0;
+  return scan.result.String.split('\n').filter(line => line.trim()).length;
+};
+
+// Add this function before the App component
+const calculateROIScore = (targetURL) => {
+  let score = 50;
+  
+  const sslIssues = [
+    targetURL.has_deprecated_tls,
+    targetURL.has_expired_ssl,
+    targetURL.has_mismatched_ssl,
+    targetURL.has_revoked_ssl,
+    targetURL.has_self_signed_ssl,
+    targetURL.has_untrusted_root_ssl
+  ].filter(Boolean).length;
+  
+  if (sslIssues > 0) {
+    score += sslIssues * 25;
   }
+  
+  let katanaCount = 0;
+  if (targetURL.katana_results) {
+    if (Array.isArray(targetURL.katana_results)) {
+      katanaCount = targetURL.katana_results.length;
+    } else if (typeof targetURL.katana_results === 'string') {
+      if (targetURL.katana_results.startsWith('[') || targetURL.katana_results.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(targetURL.katana_results);
+          katanaCount = Array.isArray(parsed) ? parsed.length : 1;
+        } catch {
+          katanaCount = targetURL.katana_results.split('\n').filter(line => line.trim()).length;
+        }
+      } else {
+        katanaCount = targetURL.katana_results.split('\n').filter(line => line.trim()).length;
+      }
+    }
+  }
+
+  if (katanaCount > 0) {
+    score += katanaCount;
+  }
+
+  let ffufCount = 0;
+  if (targetURL.ffuf_results) {
+    if (typeof targetURL.ffuf_results === 'object') {
+      ffufCount = targetURL.ffuf_results.endpoints?.length || Object.keys(targetURL.ffuf_results).length || 0;
+    } else if (typeof targetURL.ffuf_results === 'string') {
+      try {
+        const parsed = JSON.parse(targetURL.ffuf_results);
+        ffufCount = parsed.endpoints?.length || Object.keys(parsed).length || 0;
+      } catch {
+        ffufCount = targetURL.ffuf_results.split('\n').filter(line => line.trim()).length;
+      }
+    }
+  }
+  
+  if (ffufCount > 3) {
+    const extraEndpoints = ffufCount - 3;
+    const fuzzPoints = Math.min(15, extraEndpoints * 3);
+    score += fuzzPoints;
+  }
+  
+  const techCount = targetURL.technologies?.length || 0;
+  if (techCount > 0) {
+    score += techCount * 3;
+  }
+  
+  if (targetURL.status_code === 200 && katanaCount > 10) {
+    try {
+      const headers = typeof targetURL.http_response_headers === 'string' 
+        ? JSON.parse(targetURL.http_response_headers)
+        : targetURL.http_response_headers;
+      
+      const hasCSP = Object.keys(headers || {}).some(header => 
+        header.toLowerCase() === 'content-security-policy'
+      );
+      
+      if (!hasCSP) {
+        score += 10;
+      }
+    } catch (error) {
+      console.error('Error checking CSP header:', error);
+    }
+  }
+  
+  try {
+    const headers = typeof targetURL.http_response_headers === 'string'
+      ? JSON.parse(targetURL.http_response_headers)
+      : targetURL.http_response_headers;
+    
+    const hasCachingHeaders = Object.keys(headers || {}).some(header => {
+      const headerLower = header.toLowerCase();
+      return ['cache-control', 'etag', 'expires', 'vary'].includes(headerLower);
+    });
+    
+    if (hasCachingHeaders) {
+      score += 10;
+    }
+  } catch (error) {
+    console.error('Error checking caching headers:', error);
+  }
+  
+  return Math.max(0, Math.round(score));
 };
 
 function App() {

@@ -1,6 +1,6 @@
 import { Modal, Container, Row, Col, Table, Badge, Card } from 'react-bootstrap';
 
-export const calculateROIScore = (targetURL) => {
+const calculateROIScore = (targetURL) => {
   console.log('\n==================== ROI SCORE CALCULATION ====================');
   console.log(`Target URL: ${targetURL.url}`);
   console.log('----------------------------------------------------------');
@@ -213,11 +213,12 @@ const TargetSection = ({ targetURL, roiScore }) => {
       console.log(`+${katanaResults} (${katanaResults} crawled endpoints)`);
     }
     
-    if (ffufResults > 3) {
-      const extraEndpoints = ffufResults - 3;
-      const fuzzPoints = Math.min(15, extraEndpoints * 3);
-      score += fuzzPoints;
-      console.log(`+${fuzzPoints} (${extraEndpoints} fuzzed endpoints above threshold of 3)`);
+    if (targetURL.status_code === 404) {
+      score += 50;
+      console.log('+50 (404 status code)');
+    } else if (ffufResults > 0) {
+      score += ffufResults * 2;
+      console.log(`+${ffufResults * 2} (${ffufResults} ffuf endpoints)`);
     }
     
     const techCount = targetURL.technologies?.length || 0;
