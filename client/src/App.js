@@ -13,18 +13,18 @@ import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-    Container,
-    Fade,
-    Card,
-    Row,
-    Col,
-    Button,
-    ListGroup,
-    Accordion,
-    Modal,
-    Table,
-    Toast,
-    ToastContainer,
+  Container,
+  Fade,
+  Card,
+  Row,
+  Col,
+  Button,
+  ListGroup,
+  Accordion,
+  Modal,
+  Table,
+  Toast,
+  ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -32,14 +32,14 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-    getTypeIcon,
-    getLastScanDate,
-    getLatestScanStatus,
-    getLatestScanTime,
-    getLatestScanId,
-    getExecutionTime,
-    getResultLength,
-    copyToClipboard,
+  getTypeIcon,
+  getLastScanDate,
+  getLatestScanStatus,
+  getLatestScanTime,
+  getLatestScanId,
+  getExecutionTime,
+  getResultLength,
+  copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
@@ -88,7 +88,6 @@ const getHttpxResultsCount = (scan) => {
 const calculateROIScore = (targetURL) => {
   let score = 50;
   
-  // Deduct points for SSL issues
   const sslIssues = [
     targetURL.has_deprecated_tls,
     targetURL.has_expired_ssl,
@@ -98,48 +97,93 @@ const calculateROIScore = (targetURL) => {
     targetURL.has_untrusted_root_ssl
   ].filter(Boolean).length;
   
-  score -= sslIssues * 5;
+  if (sslIssues > 0) {
+    score += sslIssues * 25;
+  }
   
-  // Add points for attack surface (katana + ffuf findings)
   let katanaCount = 0;
+  if (targetURL.katana_results) {
+    if (Array.isArray(targetURL.katana_results)) {
+      katanaCount = targetURL.katana_results.length;
+    } else if (typeof targetURL.katana_results === 'string') {
+      if (targetURL.katana_results.startsWith('[') || targetURL.katana_results.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(targetURL.katana_results);
+          katanaCount = Array.isArray(parsed) ? parsed.length : 1;
+        } catch {
+          katanaCount = targetURL.katana_results.split('\n').filter(line => line.trim()).length;
+        }
+      } else {
+        katanaCount = targetURL.katana_results.split('\n').filter(line => line.trim()).length;
+      }
+    }
+  }
+
+  if (katanaCount > 0) {
+    score += katanaCount;
+  }
+
   let ffufCount = 0;
+  if (targetURL.ffuf_results) {
+    if (typeof targetURL.ffuf_results === 'object') {
+      ffufCount = targetURL.ffuf_results.endpoints?.length || Object.keys(targetURL.ffuf_results).length || 0;
+    } else if (typeof targetURL.ffuf_results === 'string') {
+      try {
+        const parsed = JSON.parse(targetURL.ffuf_results);
+        ffufCount = parsed.endpoints?.length || Object.keys(parsed).length || 0;
+      } catch {
+        ffufCount = targetURL.ffuf_results.split('\n').filter(line => line.trim()).length;
+      }
+    }
+  }
   
-  try {
-    const katanaData = targetURL.katana_results ? JSON.parse(targetURL.katana_results) : [];
-    katanaCount = Array.isArray(katanaData) ? katanaData.length : 0;
-  } catch (error) {
-    console.error('Error parsing katana results:', error);
+  if (targetURL.status_code === 404) {
+    score += 50;
+  } else if (ffufCount > 0) {
+    score += ffufCount * 2;
+  }
+  
+  const techCount = targetURL.technologies?.length || 0;
+  if (techCount > 0) {
+    score += techCount * 3;
+  }
+  
+  if (targetURL.status_code === 200 && katanaCount > 10) {
+    try {
+      const headers = typeof targetURL.http_response_headers === 'string' 
+        ? JSON.parse(targetURL.http_response_headers)
+        : targetURL.http_response_headers;
+      
+      const hasCSP = Object.keys(headers || {}).some(header => 
+        header.toLowerCase() === 'content-security-policy'
+      );
+      
+      if (!hasCSP) {
+        score += 10;
+      }
+    } catch (error) {
+      console.error('Error checking CSP header:', error);
+    }
   }
   
   try {
-    const ffufData = targetURL.ffuf_results ? JSON.parse(targetURL.ffuf_results) : {};
-    ffufCount = ffufData.endpoints ? ffufData.endpoints.length : 0;
+    const headers = typeof targetURL.http_response_headers === 'string'
+      ? JSON.parse(targetURL.http_response_headers)
+      : targetURL.http_response_headers;
+    
+    const hasCachingHeaders = Object.keys(headers || {}).some(header => {
+      const headerLower = header.toLowerCase();
+      return ['cache-control', 'etag', 'expires', 'vary'].includes(headerLower);
+    });
+    
+    if (hasCachingHeaders) {
+      score += 10;
+    }
   } catch (error) {
-    console.error('Error parsing ffuf results:', error);
+    console.error('Error checking caching headers:', error);
   }
   
-  score += Math.min((katanaCount + ffufCount) / 10, 20);
-  
-  // Add points for technology diversity
-  if (targetURL.technologies && targetURL.technologies.length > 0) {
-    score += Math.min(targetURL.technologies.length * 2, 10);
-  }
-  
-  // Add points for DNS complexity
-  const dnsRecordCount = [
-    targetURL.dns_a_records,
-    targetURL.dns_aaaa_records,
-    targetURL.dns_cname_records,
-    targetURL.dns_mx_records,
-    targetURL.dns_txt_records,
-    targetURL.dns_ns_records,
-    targetURL.dns_ptr_records,
-    targetURL.dns_srv_records
-  ].reduce((sum, records) => sum + (records ? records.length : 0), 0);
-  
-  score += Math.min(dnsRecordCount, 10);
-  
-  return Math.max(0, Math.min(100, Math.round(score)));
+  return Math.max(0, Math.round(score));
 };
 
 function App() {
@@ -280,7 +324,6 @@ function App() {
 
   useEffect(() => {
     if (activeTarget) {
-      console.log("[DEBUG] Monitoring httpx scan status for target:", activeTarget.scope_target);
       monitorHttpxScanStatus(
         activeTarget,
         setHttpxScans,
@@ -735,7 +778,6 @@ function App() {
   }
 
   const startHttpxScan = () => {
-    console.log("[DEBUG] Starting httpx scan for target:", activeTarget.scope_target);
     initiateHttpxScan(
       activeTarget,
       monitorHttpxScanStatus,
@@ -1008,7 +1050,6 @@ function App() {
 
   const handleOpenMetaDataModal = async () => {
     try {
-      console.log('Fetching target URLs for scope target:', activeTarget.id);
       const response = await fetch(
         `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${activeTarget.id}/target-urls`
       );
@@ -1016,7 +1057,6 @@ function App() {
         throw new Error('Failed to fetch target URLs');
       }
       const data = await response.json();
-      console.log('Received target URLs:', data);
       setTargetURLs(data);
       setShowMetaDataModal(true);
     } catch (error) {

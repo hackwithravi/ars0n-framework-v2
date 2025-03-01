@@ -1,9 +1,13 @@
-import React from 'react';
 import { Modal, Container, Row, Col, Table, Badge, Card } from 'react-bootstrap';
 
 const calculateROIScore = (targetURL) => {
+  console.log('\n==================== ROI SCORE CALCULATION ====================');
+  console.log(`Target URL: ${targetURL.url}`);
+  console.log('----------------------------------------------------------');
   let score = 50;
+  console.log('➕ Base Score: 50');
   
+  // SSL misconfigurations (+25 each)
   const sslIssues = [
     targetURL.has_deprecated_tls,
     targetURL.has_expired_ssl,
@@ -13,7 +17,10 @@ const calculateROIScore = (targetURL) => {
     targetURL.has_untrusted_root_ssl
   ].filter(Boolean).length;
   
-  score -= sslIssues * 5;
+  if (sslIssues > 0) {
+    score += sslIssues * 25;
+    console.log(`➕ ${sslIssues * 25} points (${sslIssues} SSL issues)`);
+  }
   
   // Handle katana results - could be string, array, or JSON string
   let katanaCount = 0;
@@ -34,6 +41,11 @@ const calculateROIScore = (targetURL) => {
     }
   }
 
+  if (katanaCount > 0) {
+    score += katanaCount;
+    console.log(`➕ ${katanaCount} points (${katanaCount} crawled endpoints)`);
+  }
+
   // Handle ffuf results - could be object, string, or JSON string
   let ffufCount = 0;
   if (targetURL.ffuf_results) {
@@ -49,30 +61,66 @@ const calculateROIScore = (targetURL) => {
     }
   }
   
-  score += Math.min((katanaCount + ffufCount) / 10, 20);
-  
-  if (targetURL.technologies && targetURL.technologies.length > 0) {
-    score += Math.min(targetURL.technologies.length * 2, 10);
+  if (targetURL.status_code === 404) {
+    score += 50;
+    console.log('➕ 50 points (404 status code)');
+  } else if (ffufCount > 0) {
+    score += ffufCount * 2;
+    console.log(`➕ ${ffufCount * 2} points (${ffufCount} ffuf endpoints)`);
   }
   
-  const dnsRecordCount = [
-    targetURL.dns_a_records,
-    targetURL.dns_aaaa_records,
-    targetURL.dns_cname_records,
-    targetURL.dns_mx_records,
-    targetURL.dns_txt_records,
-    targetURL.dns_ns_records,
-    targetURL.dns_ptr_records,
-    targetURL.dns_srv_records
-  ].reduce((sum, records) => sum + (records ? records.length : 0), 0);
+  const techCount = targetURL.technologies?.length || 0;
+  if (techCount > 0) {
+    score += techCount * 3;
+    console.log(`➕ ${techCount * 3} points (${techCount} technologies)`);
+  }
   
-  score += Math.min(dnsRecordCount, 10);
+  if (targetURL.status_code === 200 && katanaCount > 10) {
+    try {
+      const headers = typeof targetURL.http_response_headers === 'string' 
+        ? JSON.parse(targetURL.http_response_headers)
+        : targetURL.http_response_headers;
+      
+      const hasCSP = Object.keys(headers || {}).some(header => 
+        header.toLowerCase() === 'content-security-policy'
+      );
+      
+      if (!hasCSP) {
+        score += 10;
+        console.log('➕ 10 points (missing CSP with >10 endpoints)');
+      }
+    } catch (error) {
+      console.error('Error checking CSP header:', error);
+    }
+  }
   
-  return Math.max(0, Math.min(100, Math.round(score)));
+  try {
+    const headers = typeof targetURL.http_response_headers === 'string'
+      ? JSON.parse(targetURL.http_response_headers)
+      : targetURL.http_response_headers;
+    
+    const hasCachingHeaders = Object.keys(headers || {}).some(header => {
+      const headerLower = header.toLowerCase();
+      return ['cache-control', 'etag', 'expires', 'vary'].includes(headerLower);
+    });
+    
+    if (hasCachingHeaders) {
+      score += 10;
+      console.log('➕ 10 points (has caching headers)');
+    }
+  } catch (error) {
+    console.error('Error checking caching headers:', error);
+  }
+  
+  const finalScore = Math.max(0, Math.round(score));
+  console.log('----------------------------------------------------------');
+  console.log(`🎯 Final Score: ${finalScore}`);
+  console.log('==========================================================\n');
+  
+  return finalScore;
 };
 
 const TargetSection = ({ targetURL, roiScore }) => {
-  console.log('[DEBUG] ROI Report - Target URL:', targetURL);
 
   // Process HTTP response
   let httpResponse = '';
@@ -147,8 +195,9 @@ const TargetSection = ({ targetURL, roiScore }) => {
   // Calculate ROI score based on the same logic as the backend
   const calculateLocalROIScore = () => {
     let score = 50;
+    console.log(`\nLocal ROI Score for ${targetURL.url}:`);
+    console.log('Starting score: 50');
     
-    // Deduct points for SSL issues
     const sslIssues = [
       targetURL.has_deprecated_tls,
       targetURL.has_expired_ssl,
@@ -157,30 +206,72 @@ const TargetSection = ({ targetURL, roiScore }) => {
       targetURL.has_self_signed_ssl,
       targetURL.has_untrusted_root_ssl
     ].filter(Boolean).length;
-    score -= sslIssues * 5;
     
-    // Add points for attack surface (katana + ffuf findings)
-    score += Math.min((katanaResults + ffufResults) / 10, 20);
-    
-    // Add points for technology diversity
-    if (targetURL.technologies && targetURL.technologies.length > 0) {
-      score += Math.min(targetURL.technologies.length * 2, 10);
+    if (sslIssues > 0) {
+      score += sslIssues * 25;
+      console.log(`+${sslIssues * 25} (${sslIssues} SSL issues)`);
     }
     
-    // Add points for DNS complexity
-    const dnsRecordCount = [
-      targetURL.dns_a_records,
-      targetURL.dns_aaaa_records,
-      targetURL.dns_cname_records,
-      targetURL.dns_mx_records,
-      targetURL.dns_txt_records,
-      targetURL.dns_ns_records,
-      targetURL.dns_ptr_records,
-      targetURL.dns_srv_records
-    ].reduce((sum, records) => sum + (records ? records.length : 0), 0);
-    score += Math.min(dnsRecordCount, 10);
+    if (katanaResults > 0) {
+      score += katanaResults;
+      console.log(`+${katanaResults} (${katanaResults} crawled endpoints)`);
+    }
     
-    return Math.max(0, Math.min(100, Math.round(score)));
+    if (targetURL.status_code === 404) {
+      score += 50;
+      console.log('+50 (404 status code)');
+    } else if (ffufResults > 0) {
+      score += ffufResults * 2;
+      console.log(`+${ffufResults * 2} (${ffufResults} ffuf endpoints)`);
+    }
+    
+    const techCount = targetURL.technologies?.length || 0;
+    if (techCount > 0) {
+      score += techCount * 3;
+      console.log(`+${techCount * 3} (${techCount} technologies)`);
+    }
+    
+    if (targetURL.status_code === 200 && katanaResults > 10) {
+      try {
+        const headers = typeof targetURL.http_response_headers === 'string'
+          ? JSON.parse(targetURL.http_response_headers)
+          : targetURL.http_response_headers;
+        
+        const hasCSP = Object.keys(headers || {}).some(header =>
+          header.toLowerCase() === 'content-security-policy'
+        );
+        
+        if (!hasCSP) {
+          score += 10;
+          console.log('+10 (missing CSP with >10 endpoints)');
+        }
+      } catch (error) {
+        console.error('Error checking CSP header:', error);
+      }
+    }
+    
+    try {
+      const headers = typeof targetURL.http_response_headers === 'string'
+        ? JSON.parse(targetURL.http_response_headers)
+        : targetURL.http_response_headers;
+      
+      const hasCachingHeaders = Object.keys(headers || {}).some(header => {
+        const headerLower = header.toLowerCase();
+        return ['cache-control', 'etag', 'expires', 'vary'].includes(headerLower);
+      });
+      
+      if (hasCachingHeaders) {
+        score += 10;
+        console.log('+10 (has caching headers)');
+      }
+    } catch (error) {
+      console.error('Error checking caching headers:', error);
+    }
+    
+    const finalScore = Math.max(0, Math.round(score));
+    console.log(`Final score: ${finalScore}\n`);
+    
+    return finalScore;
   };
 
   // Use the calculated score if the database score is 0 or undefined
