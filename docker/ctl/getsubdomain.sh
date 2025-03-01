@@ -7,11 +7,4 @@ fi
 
 domain="$1"
 
-# Get subdomains from crt.sh
-curl -s "https://crt.sh/?q=%.${domain}&output=json" | \
-    jq -r '.[].name_value' | \
-    tr '[A-Z]' '[a-z]' | \
-    sed 's/\*.//g' | \
-    sed 's/[[:space:]]*$//' | \
-    grep -v '^[[:space:]]*$' | \
-    sort -u 
+curl -s "https://crt.sh/?q=%.${domain}&output=json" | tr -d '\r' | jq -r '.[].name_value' 2>/dev/null | tr '[A-Z]' '[a-z]' | sed 's/\*.//g' | sed 's/[[:space:]]*$//' | grep -v '^[[:space:]]*$' | sort -u || echo "No results found for ${domain}" 
