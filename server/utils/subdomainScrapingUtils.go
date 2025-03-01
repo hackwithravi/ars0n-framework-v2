@@ -794,27 +794,33 @@ func GetGauScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func RunCTLScan(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[INFO] Starting CTL scan request handling")
 	var payload struct {
 		FQDN string `json:"fqdn" binding:"required"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.FQDN == "" {
+		log.Printf("[ERROR] Invalid request body: %v", err)
 		http.Error(w, "Invalid request body. `fqdn` is required.", http.StatusBadRequest)
 		return
 	}
 
 	domain := payload.FQDN
+	log.Printf("[INFO] Processing CTL scan for domain: %s", domain)
 	wildcardDomain := fmt.Sprintf("*.%s", domain)
+	log.Printf("[DEBUG] Constructed wildcard domain: %s", wildcardDomain)
 
 	query := `SELECT id FROM scope_targets WHERE type = 'Wildcard' AND scope_target = $1`
 	var scopeTargetID string
 	err := dbPool.QueryRow(context.Background(), query, wildcardDomain).Scan(&scopeTargetID)
 	if err != nil {
-		log.Printf("[ERROR] No matching wildcard scope target found for domain %s", domain)
+		log.Printf("[ERROR] No matching wildcard scope target found for domain %s: %v", domain, err)
 		http.Error(w, "No matching wildcard scope target found.", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[INFO] Found scope target ID: %s for domain: %s", scopeTargetID, domain)
 
 	scanID := uuid.New().String()
+	log.Printf("[INFO] Generated new scan ID: %s", scanID)
 	insertQuery := `INSERT INTO ctl_scans (scan_id, domain, status, scope_target_id) VALUES ($1, $2, $3, $4)`
 	_, err = dbPool.Exec(context.Background(), insertQuery, scanID, domain, "pending", scopeTargetID)
 	if err != nil {
@@ -822,15 +828,17 @@ func RunCTLScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create scan record.", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[INFO] Successfully created CTL scan record in database")
 
 	go ExecuteAndParseCTLScan(scanID, domain)
 
+	log.Printf("[INFO] CTL scan initiated successfully, returning scan ID: %s", scanID)
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"scan_id": scanID})
 }
 
 func ExecuteAndParseCTLScan(scanID, domain string) {
-	log.Printf("[INFO] Starting CTL scan for domain %s (scan ID: %s)", domain, scanID)
+	log.Printf("[INFO] Starting CTL scan execution for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
 	cmd := exec.Command(
@@ -838,23 +846,31 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 		"ars0n-framework-v2-ctl-1",
 		"getsubdomain", domain,
 	)
+	log.Printf("[DEBUG] Constructed command: %s", cmd.String())
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	log.Printf("[INFO] Executing command: %s", cmd.String())
+	log.Printf("[INFO] Executing CTL command for domain: %s", domain)
 	err := cmd.Run()
 	execTime := time.Since(startTime).String()
+	log.Printf("[DEBUG] Command execution time: %s", execTime)
 
 	if err != nil {
-		log.Printf("[ERROR] CTL scan failed: %v", err)
+		log.Printf("[ERROR] CTL scan failed for domain %s: %v", domain, err)
+		log.Printf("[ERROR] Command stderr: %s", stderr.String())
 		UpdateCTLScanStatus(scanID, "error", "", stderr.String(), cmd.String(), execTime)
 		return
 	}
 
+	log.Printf("[INFO] CTL scan completed successfully, processing results")
+	log.Printf("[DEBUG] Raw stdout length: %d bytes", len(stdout.String()))
+
 	// Process and deduplicate results
 	lines := strings.Split(stdout.String(), "\n")
+	log.Printf("[DEBUG] Found %d raw lines in output", len(lines))
+
 	uniqueSubdomains := make(map[string]bool)
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -862,6 +878,7 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 			uniqueSubdomains[line] = true
 		}
 	}
+	log.Printf("[INFO] Found %d unique subdomains", len(uniqueSubdomains))
 
 	// Convert map to sorted slice
 	var results []string
@@ -872,25 +889,30 @@ func ExecuteAndParseCTLScan(scanID, domain string) {
 
 	// Join results with newlines
 	result := strings.Join(results, "\n")
+	log.Printf("[DEBUG] Final processed result length: %d bytes", len(result))
 
 	UpdateCTLScanStatus(scanID, "success", result, stderr.String(), cmd.String(), execTime)
-	log.Printf("[INFO] CTL scan completed successfully for domain %s", domain)
+	log.Printf("[INFO] CTL scan completed and results stored successfully for domain %s", domain)
 }
 
 func UpdateCTLScanStatus(scanID, status, result, stderr, command, execTime string) {
-	log.Printf("[INFO] Updating CTL scan status for %s to %s", scanID, status)
+	log.Printf("[INFO] Updating CTL scan status for scan ID %s to %s", scanID, status)
 	query := `UPDATE ctl_scans SET status = $1, result = $2, stderr = $3, command = $4, execution_time = $5 WHERE scan_id = $6`
+
 	_, err := dbPool.Exec(context.Background(), query, status, result, stderr, command, execTime, scanID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to update CTL scan status: %v", err)
+		log.Printf("[ERROR] Failed to update CTL scan status for scan ID %s: %v", scanID, err)
+		log.Printf("[ERROR] Update attempted with: status=%s, result_length=%d, stderr_length=%d, command_length=%d, execTime=%s",
+			status, len(result), len(stderr), len(command), execTime)
 	} else {
-		log.Printf("[INFO] Successfully updated CTL scan status for %s", scanID)
+		log.Printf("[INFO] Successfully updated CTL scan status to %s for scan ID %s", status, scanID)
 	}
 }
 
 func GetCTLScanStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	scanID := vars["scan_id"]
+	log.Printf("[INFO] Retrieving CTL scan status for scan ID: %s", scanID)
 
 	var scan CTLScanStatus
 	query := `SELECT * FROM ctl_scans WHERE scan_id = $1`
@@ -911,12 +933,18 @@ func GetCTLScanStatus(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			log.Printf("[ERROR] CTL scan not found for scan ID: %s", scanID)
 			http.Error(w, "Scan not found", http.StatusNotFound)
 		} else {
-			log.Printf("[ERROR] Failed to get scan status: %v", err)
+			log.Printf("[ERROR] Failed to get CTL scan status for scan ID %s: %v", scanID, err)
 			http.Error(w, "Failed to get scan status", http.StatusInternalServerError)
 		}
 		return
+	}
+
+	log.Printf("[INFO] Successfully retrieved CTL scan status for scan ID %s: %s", scanID, scan.Status)
+	if scan.Result.Valid {
+		log.Printf("[DEBUG] Scan has valid results of length: %d bytes", len(scan.Result.String))
 	}
 
 	response := map[string]interface{}{
@@ -935,7 +963,11 @@ func GetCTLScanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[ERROR] Failed to encode CTL scan response: %v", err)
+	} else {
+		log.Printf("[INFO] Successfully sent CTL scan status response")
+	}
 }
 
 func GetCTLScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
