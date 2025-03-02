@@ -378,7 +378,7 @@ const TargetSection = ({ targetURL, roiScore }) => {
           <Card className="bg-dark border-danger h-100">
             <Card.Body>
               <h4 className="text-danger">DNS Analysis</h4>
-              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                 <Table className="table-dark">
                   <tbody>
                     {[
