@@ -453,8 +453,9 @@ const TargetSection = ({ targetURL, roiScore }) => {
 };
 
 const ROIReport = ({ show, onHide, targetURLs = [] }) => {
-  const sortedTargets = [...targetURLs]
-    .sort((a, b) => b.roi_score - a.roi_score);
+  const sortedTargets = Array.isArray(targetURLs) 
+    ? [...targetURLs].sort((a, b) => b.roi_score - a.roi_score)
+    : [];
 
   return (
     <Modal show={show} onHide={onHide} size="xl" className="bg-dark text-white">

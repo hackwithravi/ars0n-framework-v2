@@ -2226,13 +2226,12 @@ function App() {
                               variant="outline-danger" 
                               className="flex-fill"
                               onClick={startNucleiScreenshotScan}
-                              disabled={isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending"}
+                              disabled={!mostRecentHttpxScan || 
+                                      mostRecentHttpxScan.status !== "success" || 
+                                      !httpxScans || 
+                                      httpxScans.length === 0}
                             >
-                              <div className="btn-content">
-                                {isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending" ? (
-                                  <div className="spinner"></div>
-                                ) : 'Take Screenshots'}
-                              </div>
+                              Take Screenshots
                             </Button>
                             <Button 
                               variant="outline-danger" 
@@ -2246,13 +2245,12 @@ function App() {
                               variant="outline-danger" 
                               className="flex-fill"
                               onClick={startMetaDataScan}
-                              disabled={isMetaDataScanning || mostRecentMetaDataScanStatus === "pending" || mostRecentMetaDataScanStatus === "running"}
+                              disabled={!mostRecentHttpxScan || 
+                                      mostRecentHttpxScan.status !== "success" || 
+                                      !httpxScans || 
+                                      httpxScans.length === 0}
                             >
-                              <div className="btn-content">
-                                {isMetaDataScanning || mostRecentMetaDataScanStatus === "pending" || mostRecentMetaDataScanStatus === "running" ? (
-                                  <div className="spinner"></div>
-                                ) : 'Gather Metadata'}
-                              </div>
+                              Gather Metadata
                             </Button>
                             <Button 
                               variant="outline-danger" 

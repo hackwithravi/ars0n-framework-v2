@@ -17,9 +17,9 @@ const monitorGauScanStatus = async (
     }
 
     const scans = await response.json();
-    setGauScans(scans);
+    setGauScans(scans || []);
 
-    if (scans.length > 0) {
+    if (Array.isArray(scans) && scans.length > 0) {
       const mostRecentScan = scans.reduce((latest, scan) => {
         const scanDate = new Date(scan.created_at);
         return scanDate > new Date(latest.created_at) ? scan : latest;
@@ -50,6 +50,8 @@ const monitorGauScanStatus = async (
   } catch (error) {
     console.error('Error monitoring GAU scan status:', error);
     setIsGauScanning(false);
+    setMostRecentGauScan(null);
+    setMostRecentGauScanStatus(null);
   }
 };
 
