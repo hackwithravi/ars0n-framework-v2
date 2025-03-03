@@ -2231,7 +2231,11 @@ function App() {
                                       !httpxScans || 
                                       httpxScans.length === 0}
                             >
-                              Take Screenshots
+                              <div className="btn-content">
+                                {isNucleiScreenshotScanning || mostRecentNucleiScreenshotScanStatus === "pending" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Take Screenshots'}
+                              </div>
                             </Button>
                             <Button 
                               variant="outline-danger" 
@@ -2250,7 +2254,11 @@ function App() {
                                       !httpxScans || 
                                       httpxScans.length === 0}
                             >
-                              Gather Metadata
+                              <div className="btn-content">
+                                {isMetaDataScanning || mostRecentMetaDataScanStatus === "pending" || mostRecentMetaDataScanStatus === "running" ? (
+                                  <div className="spinner"></div>
+                                ) : 'Gather Metadata'}
+                              </div>
                             </Button>
                             <Button 
                               variant="outline-danger" 
