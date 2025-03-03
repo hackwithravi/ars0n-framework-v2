@@ -283,6 +283,7 @@ function App() {
   const [targetURLs, setTargetURLs] = useState([]);
   const [showROIReport, setShowROIReport] = useState(false);
   const [selectedTargetURL, setSelectedTargetURL] = useState(null);
+  const [shuffleDNSCustomScans, setShuffleDNSCustomScans] = useState([]);
 
   const handleCloseSubdomainsModal = () => setShowSubdomainsModal(false);
   const handleCloseCloudDomainsModal = () => setShowCloudDomainsModal(false);
@@ -740,6 +741,21 @@ function App() {
     setRawResults([]);
     setConsolidatedSubdomains([]);
     setConsolidatedCount(0);
+    setNucleiScreenshotScans([]);
+    setMostRecentNucleiScreenshotScan(null);
+    setMostRecentNucleiScreenshotScanStatus(null);
+    setMetaDataScans([]);
+    setMostRecentMetaDataScan(null);
+    setMostRecentMetaDataScanStatus(null);
+    setCeWLScans([]);
+    setMostRecentCeWLScan(null);
+    setMostRecentCeWLScanStatus(null);
+    setShuffleDNSScans([]);
+    setMostRecentShuffleDNSScan(null);
+    setMostRecentShuffleDNSScanStatus(null);
+    setShuffleDNSCustomScans([]);
+    setMostRecentShuffleDNSCustomScan(null);
+    setMostRecentShuffleDNSCustomScanStatus(null);
     
     setActiveTarget(target);
     // Update the backend to set this target as active
@@ -758,6 +774,74 @@ function App() {
         ...t,
         active: t.id === target.id
       })));
+
+      // Fetch new scan data for the new active target
+      if (target.id) {
+        // Fetch screenshot scans
+        const screenshotResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${target.id}/scans/nuclei-screenshot`
+        );
+        if (screenshotResponse.ok) {
+          const screenshotData = await screenshotResponse.json();
+          setNucleiScreenshotScans(screenshotData);
+          if (screenshotData && screenshotData.length > 0) {
+            setMostRecentNucleiScreenshotScan(screenshotData[0]);
+            setMostRecentNucleiScreenshotScanStatus(screenshotData[0].status);
+          }
+        }
+
+        // Fetch metadata scans
+        const metadataResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${target.id}/scans/metadata`
+        );
+        if (metadataResponse.ok) {
+          const metadataData = await metadataResponse.json();
+          setMetaDataScans(metadataData);
+          if (metadataData && metadataData.length > 0) {
+            setMostRecentMetaDataScan(metadataData[0]);
+            setMostRecentMetaDataScanStatus(metadataData[0].status);
+          }
+        }
+
+        // Fetch CEWL scans
+        const cewlResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${target.id}/scans/cewl`
+        );
+        if (cewlResponse.ok) {
+          const cewlData = await cewlResponse.json();
+          setCeWLScans(cewlData);
+          if (cewlData && cewlData.length > 0) {
+            setMostRecentCeWLScan(cewlData[0]);
+            setMostRecentCeWLScanStatus(cewlData[0].status);
+          }
+        }
+
+        // Fetch ShuffleDNS scans
+        const shufflednsResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${target.id}/scans/shuffledns`
+        );
+        if (shufflednsResponse.ok) {
+          const shufflednsData = await shufflednsResponse.json();
+          setShuffleDNSScans(shufflednsData);
+          if (shufflednsData && shufflednsData.length > 0) {
+            setMostRecentShuffleDNSScan(shufflednsData[0]);
+            setMostRecentShuffleDNSScanStatus(shufflednsData[0].status);
+          }
+        }
+
+        // Fetch ShuffleDNS Custom scans
+        const shufflednsCustomResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/api/scope-targets/${target.id}/shufflednscustom-scans`
+        );
+        if (shufflednsCustomResponse.ok) {
+          const shufflednsCustomData = await shufflednsCustomResponse.json();
+          setShuffleDNSCustomScans(shufflednsCustomData);
+          if (shufflednsCustomData && shufflednsCustomData.length > 0) {
+            setMostRecentShuffleDNSCustomScan(shufflednsCustomData[0]);
+            setMostRecentShuffleDNSCustomScanStatus(shufflednsCustomData[0].status);
+          }
+        }
+      }
     } catch (error) {
       console.error('Error updating active scope target:', error);
     }
@@ -2104,6 +2188,36 @@ function App() {
                           <Card.Text className="text-white small fst-italic">
                             We now have a list of unique subdomains pointing to live web servers. The next step is to take screenshots of each web application and gather data to identify the target that will give us the greatest ROI as a bug bounty hunter. Focus on signs that the target may have vulnerabilities, may not be maintained, or offers a large attack surface.
                           </Card.Text>
+                          <div className="d-flex justify-content-around mt-4 mb-4">
+                            <div className="text-center px-4">
+                              <div className="digital-clock text-danger fw-bold" style={{
+                                fontFamily: "'Digital-7', monospace",
+                                fontSize: "2.5rem",
+                                textShadow: "0 0 10px rgba(255, 0, 0, 0.5)",
+                                letterSpacing: "2px"
+                              }}>
+                                {mostRecentNucleiScreenshotScan ? 
+                                  Math.floor((new Date() - new Date(mostRecentNucleiScreenshotScan.created_at)) / (1000 * 60 * 60 * 24)) : 
+                                  '∞'}
+                              </div>
+                              <div className="text-white small mt-2">day{mostRecentNucleiScreenshotScan && 
+                                Math.floor((new Date() - new Date(mostRecentNucleiScreenshotScan.created_at)) / (1000 * 60 * 60 * 24)) !== 1 ? 's' : ''} since last Screenshots</div>
+                            </div>
+                            <div className="text-center px-4">
+                              <div className="digital-clock text-danger fw-bold" style={{
+                                fontFamily: "'Digital-7', monospace",
+                                fontSize: "2.5rem",
+                                textShadow: "0 0 10px rgba(255, 0, 0, 0.5)",
+                                letterSpacing: "2px"
+                              }}>
+                                {mostRecentMetaDataScan ? 
+                                  Math.floor((new Date() - new Date(mostRecentMetaDataScan.created_at)) / (1000 * 60 * 60 * 24)) : 
+                                  '∞'}
+                              </div>
+                              <div className="text-white small mt-2">day{mostRecentMetaDataScan && 
+                                Math.floor((new Date() - new Date(mostRecentMetaDataScan.created_at)) / (1000 * 60 * 60 * 24)) !== 1 ? 's' : ''} since last MetaData</div>
+                            </div>
+                          </div>
                         </div>
                         <div className="d-flex flex-column gap-3 w-100 mt-3">
                           <div className="d-flex justify-content-between gap-2">
