@@ -2265,8 +2265,11 @@ function App() {
                             <Button 
                               variant="outline-danger" 
                               className="flex-fill"
-                              onClick={() => handleOpenROIReport()}
-                              disabled={!targetURLs || targetURLs.length === 0}
+                              onClick={handleOpenROIReport}
+                              disabled={!mostRecentNucleiScreenshotScan || 
+                                      mostRecentNucleiScreenshotScan.status !== "success" || 
+                                      !mostRecentMetaDataScan || 
+                                      mostRecentMetaDataScan.status !== "success"}
                             >
                               ROI Report
                             </Button>
