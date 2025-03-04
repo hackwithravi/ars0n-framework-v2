@@ -62,7 +62,7 @@ Ars0n Framework v2
     <img src="meta3.png" alt="Screenshot of Framework" width="800">
 </p>
 
-~ by rs0n w/ ❤️ 
+<p align="right">~ by rs0n w/ ❤️</p>
 
 ## License
 
