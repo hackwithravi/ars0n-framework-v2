@@ -77,6 +77,7 @@ import monitorMetaDataScanStatus from './utils/monitorMetaDataScanStatus';
 import MetaDataModal from './modals/MetaDataModal.js';
 import fetchHttpxScans from './utils/fetchHttpxScans';
 import ROIReport from './components/ROIReport';
+import HelpMeLearn from './components/HelpMeLearn';
 
 // Add helper function
 const getHttpxResultsCount = (scan) => {
@@ -1455,78 +1456,7 @@ function App() {
             {activeTarget.type === 'Wildcard' && (
               <div className="mb-4">
                 <h3 className="text-danger mb-3">Wildcard</h3>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-danger 5">
-                          What stage of the methodology are we at and what are we trying to accomplish?
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                              This workflow is part of the Reconnaissance (Recon) phase of the Bug Bounty Hunting methodology.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                            We have identified a root domain that belongs to the target organization.  Now our goal is to find a list of subdomains for that root domain that point to a live web server.  Each live web server is a possible target for bug bounty testing.  At the end of this workflow, we will have a list of Target URLs that can be added as "URL" Scope Targets.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-danger 5">
-                          What is Amass and how does it work?
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                              Amass is a powerful open-source tool for performing attack surface mapping and external asset discovery. It uses various techniques including DNS enumeration, web scraping, and data source integration to build a comprehensive map of an organization's external attack surface.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                              The tool works by combining multiple data sources and techniques: DNS enumeration, web scraping, certificate transparency logs, and various third-party data sources. It systematically discovers subdomains, IP addresses, and other assets associated with the target domain while respecting rate limits and avoiding detection.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-danger 5">
-                          How do I read the Amass output?
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                              Scan History shows the time, date, and results of previous scans. This helps track your reconnaissance progress and compare results across different scans.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic fs-6">
-                              Raw Results shows the complete output of the Amass scan, including all discovered subdomains, IP addresses, and associated metadata. This is useful for detailed analysis and verification.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              DNS Records provides detailed DNS information for discovered subdomains, including A records, CNAME records, and other DNS configurations that help understand the infrastructure.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Infrastructure View shows a comprehensive overview of the target's infrastructure, including cloud services, hosting providers, and other technical details about the discovered assets.{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
+                <HelpMeLearn section="amass" />
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm" style={{ minHeight: '250px' }}>
@@ -1582,35 +1512,7 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Subdomain Scraping</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
+                <HelpMeLearn section="subdomainScraping" />
                 <Row className="row-cols-5 g-3 mb-4">
                   {[
                     { name: 'Sublist3r', 
@@ -1823,35 +1725,7 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">Brute-Force</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
+                <HelpMeLearn section="bruteForce" />
                 <Row className="justify-content-between mb-4">
                   {[
                     { 
@@ -2012,35 +1886,7 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-5">JavaScript/Link Discovery</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
+                <HelpMeLearn section="javascriptDiscovery" />
                 <Row className="justify-content-between mb-4">
                   {[
                     { 
@@ -2199,35 +2045,7 @@ function App() {
                   </Col>
                 </Row>
                 <h4 className="text-secondary mb-3 fs-3 text-center">DECISION POINT</h4>
-                <Accordion data-bs-theme="dark" className="mb-3">
-                  <Accordion.Item eventKey="0">
-                    <Accordion.Header className="fs-5">Help Me Learn!</Accordion.Header>
-                    <Accordion.Body className="bg-dark">
-                      <ListGroup as="ul" variant="flush">
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic one{' '}
-                          <a href="https://example.com/topic1" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                          <ListGroup as="ul" variant="flush" className="mt-2">
-                            <ListGroup.Item as="li" className="bg-dark text-white fst-italic">
-                              Minor Topic one{' '}
-                              <a href="#" className="text-danger text-decoration-none">
-                                Learn More
-                              </a>
-                            </ListGroup.Item>
-                          </ListGroup>
-                        </ListGroup.Item>
-                        <ListGroup.Item as="li" className="bg-dark text-white">
-                          Major learning topic two{' '}
-                          <a href="https://example.com/topic2" className="text-danger text-decoration-none">
-                            Learn More
-                          </a>
-                        </ListGroup.Item>
-                      </ListGroup>
-                    </Accordion.Body>
-                  </Accordion.Item>
-                </Accordion>
+                <HelpMeLearn section="decisionPoint" />
                 <Row className="mb-4">
                   <Col>
                     <Card className="shadow-sm" style={{ minHeight: '250px' }}>

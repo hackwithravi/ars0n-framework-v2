@@ -5,7 +5,7 @@ Ars0n Framework v2
 <h3 align="center">Learn & Automate <a href="https://youtube.com/@rs0n_live">rs0n's</a> Bug Bounty Hunting Methodology</h3>
 
 <p align="center">
-    <em>Coming DEFCON 2025 (hopefully... 🙏)</em>
+    <em>Coming DEFCON 2025 (hopefully...probably.....feelin' pretty good about it right now... 🙏)</em>
 </p>
 
 <p align="center">
@@ -26,17 +26,43 @@ Ars0n Framework v2
     And much more!
 </p>
 
+<p align="center">My full bug bounty hunting methodology built into a single framework!  Automate the most common bug bounty hunting workflows and <em>Earn While You Learn</em>!</p>
+
+<p align="center">The goal of this tool is to eliminate the barrier of entry for bug bounty hunting.  My hope is that someone can pick up this tool and start hunting on day one of their AppSec journey 🚀</p>
+
 <p align="center">
-    <img src="screenshot1.png" alt="Screenshot of Framework" width="800">
+    <img src="start.png" alt="Screenshot of Framework" width="400">
+    <img src="full.png" alt="Screenshot of Framework" width="800">
+</p>
+
+<p align="center">Each step of the methodology includes a <em>"Help Me Learn!"</em> dropdown section that includes answers to the most common questions.  Most answers can be expanded by clicking the <em>"Learn More"</em> link at the end of the statement.  Clicking this link opens a modal with detailed bug bounty hunting guidance and step-by-step instructions to complete that stage of the methodology.</p>
+
+<p align="center">
+    <img src="help.png" alt="Screenshot of Framework" width="800">
 </p>
 
 <p align="center">
-    <img src="screenshot2.png" alt="Screenshot of Framework" width="800">
+    The result of the Wildcard workflow is an ROI Report that includes detailed information about each possible target, as well as a Return On Investment (ROI) score that estimates the value a specific web application gives a bug bounty hunter.  <b>This feature is the REAL value of my framework.</b>  The functionality is very simple today, but over time I will be building in years of bug bounty hunting experience to help provide guidance to reserachers who are just beginning their journey.  This score helps level the playing field for new bug bounty hunters and can provide guidance at one of the most challenging stages of the methodology.
 </p>
 
 <p align="center">
-    <img src="screenshot3.png" alt="Screenshot of Framework" width="500">
+    <img src="roi1.png" alt="Screenshot of Framework" width="800">
+    <img src="roi2.png" alt="Screenshot of Framework" width="800">
+    <img src="roi3.png" alt="Screenshot of Framework" width="800">
 </p>
+
+<p align="center">
+    In addition to the ROI report, detailed information about each target is collected and can be used in a variety of ways by experienced bug bounty hunters and beginners alike!
+</p>
+
+<p align="center">
+    <img src="screenshots.png" alt="Screenshot of Framework" width="800">
+    <img src="meta.png" alt="Screenshot of Framework" width="800">
+    <img src="meta2.png" alt="Screenshot of Framework" width="800">
+    <img src="meta3.png" alt="Screenshot of Framework" width="800">
+</p>
+
+~ by rs0n w/ ❤️ 
 
 ## License
 
