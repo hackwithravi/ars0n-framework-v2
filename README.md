@@ -77,4 +77,4 @@ This project is licensed under the GNU General Public License v3.0 (GPL-3.0). Th
 
 For more details, see the [LICENSE](LICENSE) file in the repository.
 
-Copyright (C) 2025 Ars0n Framework
+<p align="center"><em>Copyright (C) 2025 Arson Security, LLC</em></p>
