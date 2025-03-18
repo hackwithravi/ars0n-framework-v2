@@ -138,6 +138,10 @@ func ExecuteAndParseShuffleDNSWithWordlist(scanID, wordlist string) {
 	log.Printf("[INFO] Starting ShuffleDNS scan with wordlist (scan ID: %s)", scanID)
 	startTime := time.Now()
 
+	// Get the rate limit from settings
+	rateLimit := GetShuffleDNSRateLimit()
+	log.Printf("[INFO] Using ShuffleDNS rate limit: %d", rateLimit)
+
 	// Create temporary directory for wordlist and resolvers
 	tempDir := "/tmp/shuffledns-temp"
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -164,6 +168,7 @@ func ExecuteAndParseShuffleDNSWithWordlist(scanID, wordlist string) {
 		"-r", "/app/wordlists/resolvers.txt",
 		"-silent",
 		"-massdns", "/usr/local/bin/massdns",
+		"-t", fmt.Sprintf("%d", rateLimit),
 		"-mode", "bruteforce",
 	)
 
@@ -214,6 +219,10 @@ func ExecuteAndParseShuffleDNSScan(scanID, domain string) {
 	log.Printf("[INFO] Starting ShuffleDNS scan for domain %s (scan ID: %s)", domain, scanID)
 	startTime := time.Now()
 
+	// Get the rate limit from settings
+	rateLimit := GetShuffleDNSRateLimit()
+	log.Printf("[INFO] Using ShuffleDNS rate limit: %d", rateLimit)
+
 	// Create temporary directory for wordlist and resolvers
 	tempDir := "/tmp/shuffledns-temp"
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -240,6 +249,7 @@ func ExecuteAndParseShuffleDNSScan(scanID, domain string) {
 		"-r", "/app/wordlists/resolvers.txt",
 		"-silent",
 		"-massdns", "/usr/local/bin/massdns",
+		"-t", fmt.Sprintf("%d", rateLimit),
 		"-mode", "bruteforce",
 	)
 

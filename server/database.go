@@ -18,6 +18,25 @@ func createTables() {
 			active BOOLEAN DEFAULT false,
 			created_at TIMESTAMP DEFAULT NOW()
 		);`,
+		`CREATE TABLE IF NOT EXISTS user_settings (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			amass_rate_limit INTEGER DEFAULT 10,
+			httpx_rate_limit INTEGER DEFAULT 150,
+			subfinder_rate_limit INTEGER DEFAULT 20,
+			gau_rate_limit INTEGER DEFAULT 10,
+			sublist3r_rate_limit INTEGER DEFAULT 10,
+			ctl_rate_limit INTEGER DEFAULT 10,
+			shuffledns_rate_limit INTEGER DEFAULT 10000,
+			cewl_rate_limit INTEGER DEFAULT 10,
+			gospider_rate_limit INTEGER DEFAULT 5,
+			subdomainizer_rate_limit INTEGER DEFAULT 5,
+			nuclei_screenshot_rate_limit INTEGER DEFAULT 20,
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
+		);`,
+		`INSERT INTO user_settings (id)
+		SELECT gen_random_uuid()
+		WHERE NOT EXISTS (SELECT 1 FROM user_settings LIMIT 1);`,
 		`CREATE TABLE IF NOT EXISTS amass_scans (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			scan_id UUID NOT NULL UNIQUE, 

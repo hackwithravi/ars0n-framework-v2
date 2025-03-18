@@ -62,6 +62,14 @@ Ars0n Framework v2
     <img src="meta3.png" alt="Screenshot of Framework" width="800">
 </p>
 
+<p align="center">
+    Adjust the concurrency and rate limiting for each individual tool to perfectly dial in your scanning strategy!
+</p>
+
+<p align="center">
+    <img src="rate-limiting.png" alt="Screenshot of Framework" width="800">
+</p>
+
 <p align="right">~ by rs0n w/ ❤️</p>
 
 ## License
