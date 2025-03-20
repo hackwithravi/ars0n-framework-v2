@@ -113,6 +113,7 @@ func main() {
 	r.HandleFunc("/api/target-urls/{id}/roi-score", utils.UpdateTargetURLROIScore).Methods("PUT", "OPTIONS")
 	r.HandleFunc("/user/settings", getUserSettings).Methods("GET", "OPTIONS")
 	r.HandleFunc("/user/settings", updateUserSettings).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/export-data", utils.HandleExportData).Methods("POST", "OPTIONS")
 
 	log.Println("API server started on :8080")
 	http.ListenAndServe(":8080", r)

@@ -10,6 +10,7 @@ import { SubfinderResultsModal } from './modals/subfinderModals.js';
 import { ShuffleDNSResultsModal } from './modals/shuffleDNSModals.js';
 import ScreenshotResultsModal from './modals/ScreenshotResultsModal.js';
 import SettingsModal from './modals/SettingsModal.js';
+import ExportModal from './modals/ExportModal.js';
 import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
@@ -197,6 +198,7 @@ function App() {
   const [dnsRecords, setDnsRecords] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showActiveModal, setShowActiveModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selections, setSelections] = useState({
     type: '',
     inputText: '',
@@ -294,6 +296,9 @@ function App() {
   const handleCloseMetaDataModal = () => setShowMetaDataModal(false);
   const handleCloseSettingsModal = () => {
     setShowSettingsModal(false);
+  };
+  const handleCloseExportModal = () => {
+    setShowExportModal(false);
   };
 
   useEffect(() => {
@@ -1209,6 +1214,10 @@ function App() {
     setShowSettingsModal(true);
   };
 
+  const handleOpenExportModal = () => {
+    setShowExportModal(true);
+  };
+
   // Add scroll position restoration
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -1235,7 +1244,10 @@ function App() {
 
   return (
     <Container data-bs-theme="dark" className="App" style={{ padding: '20px' }}>
-      <Ars0nFrameworkHeader onSettingsClick={handleOpenSettingsModal} />
+      <Ars0nFrameworkHeader 
+        onSettingsClick={handleOpenSettingsModal} 
+        onExportClick={handleOpenExportModal}
+      />
 
       <ToastContainer 
         position="bottom-center"
@@ -1298,6 +1310,11 @@ function App() {
       <SettingsModal
         show={showSettingsModal}
         handleClose={handleCloseSettingsModal}
+      />
+
+      <ExportModal
+        show={showExportModal}
+        handleClose={handleCloseExportModal}
       />
 
       <Modal data-bs-theme="dark" show={showScanHistoryModal} onHide={handleCloseScanHistoryModal} size="xl">

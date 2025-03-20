@@ -1,6 +1,6 @@
 import { Row, Col, Button } from 'react-bootstrap';
 
-function Ars0nFrameworkHeader({ onSettingsClick }) {
+function Ars0nFrameworkHeader({ onSettingsClick, onExportClick }) {
   return (
     <Row className="align-items-center mb-3">
       <Col xs="auto">
@@ -12,6 +12,14 @@ function Ars0nFrameworkHeader({ onSettingsClick }) {
         </Button>
         <Button variant="link" className="text-white p-1">
           <i className="bi bi-person" style={{ fontSize: '1.5rem' }}></i>
+        </Button>
+        <Button 
+          variant="link" 
+          className="text-white p-1"
+          onClick={onExportClick}
+          title="Export Data"
+        >
+          <i className="bi bi-download" style={{ fontSize: '1.5rem' }}></i>
         </Button>
         <Button 
           variant="link" 
