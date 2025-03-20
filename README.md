@@ -70,6 +70,14 @@ Ars0n Framework v2
     <img src="rate-limiting.png" alt="Screenshot of Framework" width="800">
 </p>
 
+<p align="center">
+    Export your scan results to a CSV and use the data however you would like!
+</p>
+
+<p align="center">
+    <img src="export.png" alt="Screenshot of Framework" width="800">
+</p>
+
 <p align="right">~ by rs0n w/ ❤️</p>
 
 ## License
