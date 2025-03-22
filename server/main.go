@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -150,7 +151,9 @@ func getUserSettings(w http.ResponseWriter, r *http.Request) {
 			cewl_rate_limit,
 			gospider_rate_limit,
 			subdomainizer_rate_limit,
-			nuclei_screenshot_rate_limit
+			nuclei_screenshot_rate_limit,
+			custom_user_agent,
+			custom_header
 		FROM user_settings
 		LIMIT 1
 	`)
@@ -158,6 +161,7 @@ func getUserSettings(w http.ResponseWriter, r *http.Request) {
 	var amassRateLimit, httpxRateLimit, subfinderRateLimit, gauRateLimit,
 		sublist3rRateLimit, ctlRateLimit, shufflednsRateLimit,
 		cewlRateLimit, gospiderRateLimit, subdomainizerRateLimit, nucleiScreenshotRateLimit int
+	var customUserAgent, customHeader sql.NullString
 
 	err := row.Scan(
 		&amassRateLimit,
@@ -171,6 +175,8 @@ func getUserSettings(w http.ResponseWriter, r *http.Request) {
 		&gospiderRateLimit,
 		&subdomainizerRateLimit,
 		&nucleiScreenshotRateLimit,
+		&customUserAgent,
+		&customHeader,
 	)
 
 	if err != nil {
@@ -188,6 +194,8 @@ func getUserSettings(w http.ResponseWriter, r *http.Request) {
 			"gospider_rate_limit":          5,
 			"subdomainizer_rate_limit":     5,
 			"nuclei_screenshot_rate_limit": 20,
+			"custom_user_agent":            "",
+			"custom_header":                "",
 		}
 	} else {
 		settings = map[string]interface{}{
@@ -202,6 +210,8 @@ func getUserSettings(w http.ResponseWriter, r *http.Request) {
 			"gospider_rate_limit":          gospiderRateLimit,
 			"subdomainizer_rate_limit":     subdomainizerRateLimit,
 			"nuclei_screenshot_rate_limit": nucleiScreenshotRateLimit,
+			"custom_user_agent":            customUserAgent.String,
+			"custom_header":                customHeader.String,
 		}
 	}
 
@@ -237,6 +247,8 @@ func updateUserSettings(w http.ResponseWriter, r *http.Request) {
 			gospider_rate_limit = $9,
 			subdomainizer_rate_limit = $10,
 			nuclei_screenshot_rate_limit = $11,
+			custom_user_agent = $12,
+			custom_header = $13,
 			updated_at = NOW()
 	`,
 		getIntSetting(settings, "amass_rate_limit", 10),
@@ -250,6 +262,8 @@ func updateUserSettings(w http.ResponseWriter, r *http.Request) {
 		getIntSetting(settings, "gospider_rate_limit", 5),
 		getIntSetting(settings, "subdomainizer_rate_limit", 5),
 		getIntSetting(settings, "nuclei_screenshot_rate_limit", 20),
+		settings["custom_user_agent"],
+		settings["custom_header"],
 	)
 
 	if err != nil {

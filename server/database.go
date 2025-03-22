@@ -390,6 +390,16 @@ func createTables() {
 				RAISE NOTICE 'Column roi_score already exists in target_urls.';
 			END;
 		END $$;`,
+
+		`DO $$ 
+		BEGIN 
+			BEGIN
+				ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS custom_user_agent TEXT;
+				ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS custom_header TEXT;
+			EXCEPTION WHEN duplicate_column THEN 
+				RAISE NOTICE 'Custom HTTP columns already exist in user_settings.';
+			END;
+		END $$;`,
 	}
 
 	for _, query := range queries {

@@ -1,11 +1,29 @@
 import { useState, useEffect } from 'react';
-import { Modal, Button, Form, Row, Col, Spinner, Accordion } from 'react-bootstrap';
+import { Modal, Button, Form, Row, Col, Spinner, Accordion, Nav, Tab } from 'react-bootstrap';
+
+// Add this CSS at the top of your component
+const styles = {
+  navLink: {
+    color: '#dc3545 !important',
+  },
+  navLinkActive: {
+    backgroundColor: '#dc3545 !important',
+    color: '#fff !important',
+  },
+  formControl: {
+    '&:focus': {
+      borderColor: '#dc3545',
+      boxShadow: '0 0 0 0.2rem rgba(220, 53, 69, 0.25)',
+    },
+  },
+};
 
 function SettingsModal({ show, handleClose }) {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState('rate-limits');
 
   useEffect(() => {
     if (show) {
@@ -70,11 +88,11 @@ function SettingsModal({ show, handleClose }) {
     }
   };
 
-  const handleChange = (tool, value) => {
+  const handleChange = (field, value) => {
     setSaveSuccess(false);
     setSettings(prev => ({
       ...prev,
-      [`${tool}_rate_limit`]: parseInt(value)
+      [field]: value
     }));
   };
 
@@ -122,7 +140,7 @@ function SettingsModal({ show, handleClose }) {
           max={max}
           step={step}
           value={settings[`${tool}_rate_limit`] || min}
-          onChange={(e) => handleChange(tool, e.target.value)}
+          onChange={(e) => handleChange(`${tool}_rate_limit`, e.target.value)}
         />
         <p className="text-white-50 small mt-1">{description}</p>
       </Col>
@@ -163,47 +181,183 @@ function SettingsModal({ show, handleClose }) {
         ) : saveSuccess ? (
           <div className="alert alert-success">Settings saved successfully!</div>
         ) : (
-          <Form>
-            <h5 className="text-danger mb-3">Tool Rate Limits</h5>
-            <p className="text-white-50 small mb-4">
-              Adjust the rate limits for each tool to balance between speed and avoiding rate limiting by target servers.
-              Higher values = faster scans, but may trigger rate limiting or IP blocks.
-            </p>
-            
-            <Accordion className="mb-4">
-              <Accordion.Item eventKey="0">
-                <Accordion.Header>About Rate Limiting</Accordion.Header>
-                <Accordion.Body>
-                  <p className="text-white-50 small">
-                    Rate limiting controls how aggressively each tool sends requests to target servers or APIs. 
-                    Setting appropriate rate limits is crucial for:
-                  </p>
-                  <ul className="text-white-50 small">
-                    <li><strong>Avoiding IP blocks:</strong> Many services will temporarily block your IP if you send too many requests too quickly</li>
-                    <li><strong>Bypassing WAFs:</strong> Web Application Firewalls often trigger on high-volume scanning</li>
-                    <li><strong>Respecting API limits:</strong> Many tools use APIs with strict rate limits</li>
-                    <li><strong>Staying stealthy:</strong> Lower rate limits help avoid detection during security testing</li>
-                  </ul>
-                  <p className="text-white-50 small">
-                    <strong>Note:</strong> The exact implementation of rate limiting varies by tool. Some use requests per second, 
-                    others use concurrent connections, and some use a combination of both.
-                  </p>
-                </Accordion.Body>
-              </Accordion.Item>
-            </Accordion>
-            
-            {renderSlider('amass', 'Amass', 1, 50, 1, toolDescriptions.amass)}
-            {renderSlider('httpx', 'HTTPX', 50, 500, 10, toolDescriptions.httpx)}
-            {renderSlider('subfinder', 'Subfinder', 1, 100, 1, toolDescriptions.subfinder)}
-            {renderSlider('gau', 'GAU', 1, 50, 1, toolDescriptions.gau)}
-            {renderSlider('sublist3r', 'Sublist3r', 1, 50, 1, toolDescriptions.sublist3r)}
-            {renderSlider('ctl', 'CTL', 1, 50, 1, toolDescriptions.ctl)}
-            {renderSlider('shuffledns', 'ShuffleDNS', 1000, 20000, 1000, toolDescriptions.shuffledns)}
-            {renderSlider('cewl', 'CeWL', 1, 50, 1, toolDescriptions.cewl)}
-            {renderSlider('gospider', 'GoSpider', 1, 20, 1, toolDescriptions.gospider)}
-            {renderSlider('subdomainizer', 'Subdomainizer', 1, 20, 1, toolDescriptions.subdomainizer)}
-            {renderSlider('nuclei_screenshot', 'Nuclei Screenshot', 1, 100, 1, toolDescriptions.nuclei_screenshot)}
-          </Form>
+          <Tab.Container activeKey={activeTab} onSelect={setActiveTab}>
+            <Row>
+              <Col sm={3}>
+                <Nav variant="pills" className="flex-column">
+                  <Nav.Item>
+                    <Nav.Link 
+                      eventKey="rate-limits"
+                      className={`text-danger ${activeTab === 'rate-limits' ? 'active' : ''}`}
+                      style={{
+                        ...(activeTab === 'rate-limits' ? styles.navLinkActive : styles.navLink),
+                      }}
+                    >
+                      Rate Limits
+                    </Nav.Link>
+                  </Nav.Item>
+                  <Nav.Item>
+                    <Nav.Link 
+                      eventKey="custom-http"
+                      className={`text-danger ${activeTab === 'custom-http' ? 'active' : ''}`}
+                      style={{
+                        ...(activeTab === 'custom-http' ? styles.navLinkActive : styles.navLink),
+                      }}
+                    >
+                      Custom HTTP
+                    </Nav.Link>
+                  </Nav.Item>
+                </Nav>
+              </Col>
+              <Col sm={9}>
+                <Tab.Content>
+                  <Tab.Pane eventKey="rate-limits">
+                    <h5 className="text-danger mb-3">Tool Rate Limits</h5>
+                    <p className="text-white-50 small mb-4">
+                      Adjust the rate limits for each tool to balance between speed and avoiding rate limiting by target servers.
+                      Higher values = faster scans, but may trigger rate limiting or IP blocks.
+                    </p>
+                    
+                    <Accordion className="mb-4">
+                      <Accordion.Item eventKey="0">
+                        <Accordion.Header>About Rate Limiting</Accordion.Header>
+                        <Accordion.Body>
+                          <p className="text-white-50 small">
+                            Rate limiting controls how aggressively each tool sends requests to target servers or APIs. 
+                            Setting appropriate rate limits is crucial for:
+                          </p>
+                          <ul className="text-white-50 small">
+                            <li><strong>Avoiding IP blocks:</strong> Many services will temporarily block your IP if you send too many requests too quickly</li>
+                            <li><strong>Bypassing WAFs:</strong> Web Application Firewalls often trigger on high-volume scanning</li>
+                            <li><strong>Respecting API limits:</strong> Many tools use APIs with strict rate limits</li>
+                            <li><strong>Staying stealthy:</strong> Lower rate limits help avoid detection during security testing</li>
+                          </ul>
+                          <p className="text-white-50 small">
+                            <strong>Note:</strong> The exact implementation of rate limiting varies by tool. Some use requests per second, 
+                            others use concurrent connections, and some use a combination of both.
+                          </p>
+                        </Accordion.Body>
+                      </Accordion.Item>
+                    </Accordion>
+                    
+                    {renderSlider('amass', 'Amass', 1, 50, 1, toolDescriptions.amass)}
+                    {renderSlider('httpx', 'HTTPX', 50, 500, 10, toolDescriptions.httpx)}
+                    {renderSlider('subfinder', 'Subfinder', 1, 100, 1, toolDescriptions.subfinder)}
+                    {renderSlider('gau', 'GAU', 1, 50, 1, toolDescriptions.gau)}
+                    {renderSlider('sublist3r', 'Sublist3r', 1, 50, 1, toolDescriptions.sublist3r)}
+                    {renderSlider('ctl', 'CTL', 1, 50, 1, toolDescriptions.ctl)}
+                    {renderSlider('shuffledns', 'ShuffleDNS', 1000, 20000, 1000, toolDescriptions.shuffledns)}
+                    {renderSlider('cewl', 'CeWL', 1, 50, 1, toolDescriptions.cewl)}
+                    {renderSlider('gospider', 'GoSpider', 1, 20, 1, toolDescriptions.gospider)}
+                    {renderSlider('subdomainizer', 'Subdomainizer', 1, 20, 1, toolDescriptions.subdomainizer)}
+                    {renderSlider('nuclei_screenshot', 'Nuclei Screenshot', 1, 100, 1, toolDescriptions.nuclei_screenshot)}
+                  </Tab.Pane>
+                  <Tab.Pane eventKey="custom-http">
+                    <h5 className="text-danger mb-3">Custom HTTP Settings</h5>
+                    <p className="text-white-50 small mb-4">
+                      Configure custom HTTP headers and user agent strings that will be used by the tools when making requests.
+                    </p>
+                    
+                    <Accordion className="mb-4">
+                      <Accordion.Item eventKey="0">
+                        <Accordion.Header>About Custom HTTP Settings</Accordion.Header>
+                        <Accordion.Body>
+                          <p className="text-white-50 small">
+                            Custom HTTP headers and User Agents are only applicable to tools that make direct HTTP requests. 
+                            These settings will be used by the following tools:
+                          </p>
+                          <ul className="text-white-50 small">
+                            <li>
+                              <strong>HTTPX:</strong> Supports both custom headers and user agents
+                              <br/>
+                              <span className="fst-italic">Used for: HTTP request fingerprinting and web server discovery</span>
+                            </li>
+                            <li>
+                              <strong>GoSpider:</strong> Supports both custom headers and user agents
+                              <br/>
+                              <span className="fst-italic">Used for: Web crawling and JavaScript analysis</span>
+                            </li>
+                            <li>
+                              <strong>Nuclei:</strong> Supports custom headers (user agent via header)
+                              <br/>
+                              <span className="fst-italic">Used for: Taking screenshots of web applications</span>
+                            </li>
+                            <li>
+                              <strong>CeWL:</strong> Supports custom user agent only
+                              <br/>
+                              <span className="fst-italic">Used for: Web crawling to generate custom wordlists</span>
+                            </li>
+                          </ul>
+                          <p className="text-white-50 small mt-3">
+                            <strong>Tools that don't use HTTP settings:</strong>
+                          </p>
+                          <ul className="text-white-50 small">
+                            <li>
+                              <strong>Amass:</strong> Focuses on DNS enumeration and network mapping
+                              <br/>
+                              <span className="fst-italic">Doesn't make direct HTTP requests - uses DNS protocols and APIs</span>
+                            </li>
+                            <li>
+                              <strong>Subfinder:</strong> Performs passive subdomain enumeration
+                              <br/>
+                              <span className="fst-italic">Uses APIs and search engines rather than direct HTTP requests</span>
+                            </li>
+                            <li>
+                              <strong>ShuffleDNS:</strong> DNS resolver and subdomain brute-forcer
+                              <br/>
+                              <span className="fst-italic">Works at the DNS protocol level, not HTTP</span>
+                            </li>
+                            <li>
+                              <strong>Sublist3r:</strong> Passive subdomain enumeration
+                              <br/>
+                              <span className="fst-italic">Uses search engine APIs rather than direct HTTP requests</span>
+                            </li>
+                            <li>
+                              <strong>Subdomainizer:</strong> Parses JavaScript files locally after downloading
+                              <br/>
+                              <span className="fst-italic">Uses basic Python requests without custom HTTP settings</span>
+                            </li>
+                            <li>
+                              <strong>GAU:</strong> URL fetching from web archives
+                              <br/>
+                              <span className="fst-italic">Uses its own HTTP client settings, doesn't support custom headers/UA</span>
+                            </li>
+                          </ul>
+                          <p className="text-white-50 small mt-3">
+                            <strong>Note:</strong> Tools that don't support custom HTTP settings typically operate at the DNS level 
+                            or use third-party APIs for data collection. These tools focus on network-level reconnaissance rather 
+                            than direct web application interaction.
+                          </p>
+                        </Accordion.Body>
+                      </Accordion.Item>
+                    </Accordion>
+                    
+                    <Form.Group className="mb-4">
+                      <Form.Label className="text-white">Custom User Agent</Form.Label>
+                      <Form.Control
+                        type="text"
+                        placeholder="Example: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        value={settings.custom_user_agent || ''}
+                        onChange={(e) => handleChange('custom_user_agent', e.target.value)}
+                        className="custom-input"
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-4">
+                      <Form.Label className="text-white">Custom Header</Form.Label>
+                      <Form.Control
+                        type="text"
+                        placeholder="Example: X-Custom-Header: my-custom-value"
+                        value={settings.custom_header || ''}
+                        onChange={(e) => handleChange('custom_header', e.target.value)}
+                        className="custom-input"
+                      />
+                    </Form.Group>
+                  </Tab.Pane>
+                </Tab.Content>
+              </Col>
+            </Row>
+          </Tab.Container>
         )}
       </Modal.Body>
       <Modal.Footer>
@@ -221,5 +375,42 @@ function SettingsModal({ show, handleClose }) {
     </Modal>
   );
 }
+
+// Add this CSS as a style tag in your component or in your global CSS file
+const styleSheet = `
+  .nav-pills .nav-link.active {
+    background-color: #dc3545 !important;
+    color: #fff !important;
+  }
+
+  .nav-pills .nav-link:not(.active) {
+    color: #dc3545 !important;
+  }
+
+  .nav-pills .nav-link:hover:not(.active) {
+    color: #dc3545 !important;
+    background-color: rgba(220, 53, 69, 0.1) !important;
+  }
+
+  .custom-input {
+    background-color: #343a40 !important;
+    border: 1px solid #495057;
+    color: #fff !important;
+  }
+
+  .custom-input:focus {
+    border-color: #dc3545 !important;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25) !important;
+  }
+
+  .custom-input::placeholder {
+    color: #6c757d !important;
+  }
+`;
+
+// Add the styles to the document
+const styleElement = document.createElement('style');
+styleElement.textContent = styleSheet;
+document.head.appendChild(styleElement);
 
 export default SettingsModal; 

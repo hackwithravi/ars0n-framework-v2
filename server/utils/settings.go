@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"database/sql"
 	"log"
 )
 
@@ -95,4 +96,22 @@ func GetSubdomainizerRateLimit() int {
 // GetNucleiScreenshotRateLimit returns the rate limit for Nuclei Screenshot
 func GetNucleiScreenshotRateLimit() int {
 	return GetRateLimit("nuclei_screenshot")
+}
+
+// GetCustomHTTPSettings retrieves the custom HTTP settings from the database
+func GetCustomHTTPSettings() (string, string) {
+	var customUserAgent, customHeader sql.NullString
+
+	err := dbPool.QueryRow(context.Background(), `
+		SELECT custom_user_agent, custom_header
+		FROM user_settings
+		LIMIT 1
+	`).Scan(&customUserAgent, &customHeader)
+
+	if err != nil {
+		log.Printf("[ERROR] Failed to fetch custom HTTP settings: %v", err)
+		return "", ""
+	}
+
+	return customUserAgent.String, customHeader.String
 }

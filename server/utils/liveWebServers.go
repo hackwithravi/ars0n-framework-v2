@@ -168,6 +168,11 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 	rateLimit := GetHttpxRateLimit()
 	log.Printf("[INFO] Using rate limit of %d for HTTPX scan", rateLimit)
 
+	// Get custom HTTP settings
+	customUserAgent, customHeader := GetCustomHTTPSettings()
+	log.Printf("[DEBUG] Custom User Agent: %s", customUserAgent)
+	log.Printf("[DEBUG] Custom Header: %s", customHeader)
+
 	// Get scope target ID
 	var scopeTargetID string
 	err := dbPool.QueryRow(context.Background(),
@@ -232,7 +237,7 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 	}
 	log.Printf("[DEBUG] Wrote %d domains to file: %s", len(domainsToScan), domainsFile)
 
-	// Run httpx scan
+	// Build the docker command with base parameters
 	dockerCmd := []string{
 		"docker", "exec",
 		"ars0n-framework-v2-httpx-1",
@@ -249,8 +254,19 @@ func ExecuteAndParseHttpxScan(scanID, domain string) {
 		"-retries", "2",
 		"-rate-limit", fmt.Sprintf("%d", rateLimit),
 		"-mc", "100,101,200,201,202,203,204,205,206,207,208,226,300,301,302,303,304,305,307,308,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511",
-		"-o", filepath.Join("/tmp", fmt.Sprintf("httpx-%s", scanID), "httpx-output.json"),
 	}
+
+	// Add custom headers if specified
+	// HTTPX uses -H for both headers and user agent
+	if customUserAgent != "" {
+		dockerCmd = append(dockerCmd, "-H", fmt.Sprintf("User-Agent: %s", customUserAgent))
+	}
+	if customHeader != "" {
+		dockerCmd = append(dockerCmd, "-H", customHeader)
+	}
+
+	// Add output file parameter
+	dockerCmd = append(dockerCmd, "-o", filepath.Join("/tmp", fmt.Sprintf("httpx-%s", scanID), "httpx-output.json"))
 
 	cmd := exec.Command(dockerCmd[0], dockerCmd[1:]...)
 	var stdout, stderr bytes.Buffer
