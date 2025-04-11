@@ -872,6 +872,33 @@ function App() {
     initiateAmassScan(activeTarget, monitorScanStatus, setIsScanning, setAmassScans, setMostRecentAmassScanStatus, setDnsRecords, setSubdomains, setCloudDomains, setMostRecentAmassScan)
   }
 
+  const startQuickScan = () => {
+    startAmassScan();
+    startHttpxScan();
+  }
+
+  const startBalancedScan = () => {
+    startAmassScan();
+    startHttpxScan();
+    startGauScan();
+    startSublist3rScan();
+    startAssetfinderScan();
+  }
+
+  const startFullScan = () => {
+    startBalancedScan();
+    startCTLScan();
+    startSubfinderScan();
+    startShuffleDNSScan();
+    startCeWLScan();
+  }
+
+  const startYOLOScan = () => {
+    startFullScan();
+    startGoSpiderScan();
+    startSubdomainizerScan();
+  }
+
   const startHttpxScan = () => {
     initiateHttpxScan(
       activeTarget,
@@ -1479,6 +1506,10 @@ function App() {
           activeTarget={activeTarget}
           scopeTargets={scopeTargets}
           getTypeIcon={getTypeIcon}
+          onQuickScan={startQuickScan}
+          onBalancedScan={startBalancedScan}
+          onFullScan={startFullScan}
+          onYOLOScan={startYOLOScan}
         />
       </Fade>
 

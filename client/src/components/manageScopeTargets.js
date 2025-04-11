@@ -5,7 +5,11 @@ function ManageScopeTargets({
   handleActiveModalOpen, 
   activeTarget, 
   scopeTargets, 
-  getTypeIcon
+  getTypeIcon,
+  onQuickScan,
+  onBalancedScan,
+  onFullScan,
+  onYOLOScan
 }) {
   return (
     <>
@@ -35,6 +39,12 @@ function ManageScopeTargets({
                     <img src={getTypeIcon(activeTarget.type)} alt={activeTarget.type} style={{ width: '30px' }} />
                   </span>
                 </Card.Text>
+                <div className="d-flex justify-content-between gap-2 mt-3">
+                  <Button variant="outline-danger" className="flex-fill" onClick={onQuickScan}>Quick Scan</Button>
+                  <Button variant="outline-danger" className="flex-fill" onClick={onBalancedScan}>Balanced Scan</Button>
+                  <Button variant="outline-danger" className="flex-fill" onClick={onFullScan}>Full Scan</Button>
+                  <Button variant="outline-danger" className="flex-fill" onClick={onYOLOScan}>YOLO Scan</Button>
+                </div>
               </Card.Body>
             </Card>
           )}
