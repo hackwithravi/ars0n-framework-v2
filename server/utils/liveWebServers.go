@@ -393,7 +393,6 @@ func GetHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] Getting httpx scans for scope target: %s", scopeTargetID)
 	query := `SELECT id, scan_id, domain, status, result, error, stdout, stderr, command, execution_time, created_at, scope_target_id 
 		FROM httpx_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
 	rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
