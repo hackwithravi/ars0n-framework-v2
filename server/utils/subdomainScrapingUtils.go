@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"net/url"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
@@ -676,6 +678,80 @@ func ExecuteAndParseGauScan(scanID, domain string) {
 
 		if err == nil {
 			result = stdout.String()
+		}
+	}
+
+	// Process results to limit the number of URLs if necessary
+	if result != "" {
+		lines := strings.Split(strings.TrimSpace(result), "\n")
+		lineCount := len(lines)
+		log.Printf("[INFO] GAU scan found %d URLs for domain %s", lineCount, domain)
+
+		// Check if results exceed 1000 URLs
+		if lineCount > 1000 {
+			log.Printf("[INFO] Results exceed 1000 URLs, reducing to unique subdomains only")
+
+			// Map to store unique subdomains and their representative URL
+			uniqueSubdomains := make(map[string]string)
+
+			// Process each URL to extract subdomains
+			for _, line := range lines {
+				if line == "" {
+					continue
+				}
+
+				// Extract URL - handle both raw URLs and JSON format
+				var urlStr string
+
+				// First try to parse as JSON
+				var gauResult struct {
+					URL string `json:"url"`
+				}
+
+				if err := json.Unmarshal([]byte(line), &gauResult); err == nil && gauResult.URL != "" {
+					// Successfully parsed as JSON
+					urlStr = gauResult.URL
+				} else if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+					// Line appears to be a raw URL
+					urlStr = line
+				} else {
+					log.Printf("[ERROR] Failed to parse GAU result, not valid JSON or URL: %s", line)
+					continue
+				}
+
+				// Extract subdomain from URL
+				parsedURL, err := url.Parse(urlStr)
+				if err != nil {
+					log.Printf("[ERROR] Failed to parse URL %s: %v", urlStr, err)
+					continue
+				}
+
+				hostname := parsedURL.Hostname()
+				if hostname == "" {
+					continue
+				}
+
+				// Store the first URL for each unique subdomain
+				if _, exists := uniqueSubdomains[hostname]; !exists {
+					// If it was raw URL, create proper JSON for storage
+					if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+						jsonData, _ := json.Marshal(map[string]string{"url": line})
+						uniqueSubdomains[hostname] = string(jsonData)
+					} else {
+						uniqueSubdomains[hostname] = line
+					}
+				}
+			}
+
+			// Build a new result string with only unique subdomain URLs
+			var uniqueResults []string
+			for _, jsonLine := range uniqueSubdomains {
+				uniqueResults = append(uniqueResults, jsonLine)
+			}
+
+			// Replace the original result with the reduced set
+			result = strings.Join(uniqueResults, "\n")
+			log.Printf("[INFO] Reduced %d URLs to %d unique subdomain URLs", lineCount, len(uniqueResults))
 		}
 	}
 
