@@ -1322,7 +1322,11 @@ function App() {
       monitorHttpxScanStatus,
       monitorNucleiScreenshotScanStatus,
       monitorMetaDataScanStatus,
-      initiateMetaDataScan
+      initiateMetaDataScan,
+      initiateCTLScan,
+      monitorCTLScanStatus,
+      setCTLScans,
+      setGauScans
     );
   };
 
@@ -1963,6 +1967,7 @@ function App() {
           onYOLOScan={startYOLOScan}
           isQuickScanning={isQuickScanning}
           quickScanCurrentStep={quickScanCurrentStep}
+          mostRecentGauScanStatus={mostRecentGauScanStatus}
         />
       </Fade>
 

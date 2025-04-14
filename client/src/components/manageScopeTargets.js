@@ -11,11 +11,17 @@ function ManageScopeTargets({
   onFullScan,
   onYOLOScan,
   isQuickScanning,
-  quickScanCurrentStep
+  quickScanCurrentStep,
+  mostRecentGauScanStatus
 }) {
   // Helper function to display a human-readable step name
   const formatStepName = (stepKey) => {
     if (!stepKey) return "";
+    
+    // Special case for GAU when it's processing
+    if (stepKey === 'gau' && mostRecentGauScanStatus === 'processing') {
+      return "GAU (Processing Large Results)";
+    }
     
     // Convert snake_case or camelCase to words with spaces
     const words = stepKey

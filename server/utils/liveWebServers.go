@@ -425,8 +425,6 @@ func GetHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		log.Printf("[DEBUG] Processing scan ID: %s, Status: %s, Has Result: %v", scan.ScanID, scan.Status, scan.Result.Valid)
-
 		// Convert to map to control JSON serialization
 		scanMap := map[string]interface{}{
 			"id":              scan.ID,
@@ -446,13 +444,10 @@ func GetHttpxScansForScopeTarget(w http.ResponseWriter, r *http.Request) {
 		// Only set result if it's not null and not empty
 		if scan.Result.Valid && scan.Result.String != "" {
 			scanMap["result"] = scan.Result.String
-			log.Printf("[DEBUG] Scan %s has results of length: %d", scan.ScanID, len(scan.Result.String))
 		}
 
 		scans = append(scans, scanMap)
 	}
-
-	log.Printf("[DEBUG] Found %d scans for scope target %s", len(scans), scopeTargetID)
 
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]interface{}{

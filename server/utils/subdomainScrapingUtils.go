@@ -689,7 +689,10 @@ func ExecuteAndParseGauScan(scanID, domain string) {
 
 		// Check if results exceed 1000 URLs
 		if lineCount > 1000 {
-			log.Printf("[INFO] Results exceed 1000 URLs, reducing to unique subdomains only")
+			log.Printf("[INFO] Results exceed 1000 URLs, setting status to 'processing' while reducing to unique subdomains")
+
+			// Update status to "processing" to let the frontend know we're still working
+			UpdateGauScanStatus(scanID, "processing", "", "Processing large result set...", strings.Join(dockerCmd, " "), execTime)
 
 			// Map to store unique subdomains and their representative URL
 			uniqueSubdomains := make(map[string]string)
@@ -752,10 +755,18 @@ func ExecuteAndParseGauScan(scanID, domain string) {
 			// Replace the original result with the reduced set
 			result = strings.Join(uniqueResults, "\n")
 			log.Printf("[INFO] Reduced %d URLs to %d unique subdomain URLs", lineCount, len(uniqueResults))
+
+			// Now update with the final result and set status to success
+			UpdateGauScanStatus(scanID, "success", result, stderr.String(), strings.Join(dockerCmd, " "), execTime)
+		} else {
+			// If results don't exceed 1000, just update with success directly
+			UpdateGauScanStatus(scanID, "success", result, stderr.String(), strings.Join(dockerCmd, " "), execTime)
 		}
+	} else {
+		// Empty result, update with success status
+		UpdateGauScanStatus(scanID, "success", result, stderr.String(), strings.Join(dockerCmd, " "), execTime)
 	}
 
-	UpdateGauScanStatus(scanID, "success", result, stderr.String(), strings.Join(dockerCmd, " "), execTime)
 	log.Printf("[INFO] Scan status updated for scan %s", scanID)
 }
 

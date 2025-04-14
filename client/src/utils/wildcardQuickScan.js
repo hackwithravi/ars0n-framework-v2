@@ -100,14 +100,21 @@ const waitForScanCompletion = async (scanType, targetId, setIsScanning, setMostR
           // Update status in UI
           setMostRecentScanStatus(mostRecentScan.status);
           
-          if (mostRecentScan.status === 'completed' || mostRecentScan.status === 'success' || mostRecentScan.status === 'failed') {
+          if (mostRecentScan.status === 'completed' || 
+              mostRecentScan.status === 'success' || 
+              mostRecentScan.status === 'failed' || 
+              mostRecentScan.status === 'error') {  // Also consider 'error' status as completed
             debugTrace(`${scanType} scan finished with status: ${mostRecentScan.status}`);
             setIsScanning(false);
             clearTimeout(hardTimeout); // Clear the hard timeout
             resolve(mostRecentScan);
+          } else if (mostRecentScan.status === 'processing') {
+            // The scan is complete but still processing large results (e.g., GAU with >1000 URLs)
+            debugTrace(`${scanType} scan is still processing large results, checking again in 5 seconds`);
+            setTimeout(checkStatus, 5000);
           } else {
-            // Still pending, check again after delay
-            debugTrace(`${scanType} scan still pending, checking again in 5 seconds`);
+            // Still pending or another status, check again after delay
+            debugTrace(`${scanType} scan still pending (status: ${mostRecentScan.status}), checking again in 5 seconds`);
             setTimeout(checkStatus, 5000);
           }
         } catch (error) {
@@ -178,20 +185,23 @@ const startQuickScan = async (
   monitorHttpxScanStatus,
   monitorNucleiScreenshotScanStatus,
   monitorMetaDataScanStatus,
-  initiateMetaDataScan
+  initiateMetaDataScan,
+  initiateCTLScan,
+  monitorCTLScanStatus,
+  setCTLScans,
+  setGauScans
 ) => {
   if (!activeTarget) return;
   
-  // Clear any previous Quick Scan state
-  localStorage.removeItem('quickScanCurrentStep');
-  localStorage.removeItem('quickScanTargetId');
-  
+  // Initialize quick scan state - don't clear previous state until we're done
+  debugTrace("Starting quick scan for target ID: " + activeTarget.id);
   setIsQuickScanning(true);
   setQuickScanCurrentStep(QUICK_SCAN_STEPS.IDLE);
   setQuickScanTargetId(activeTarget.id);
   
   localStorage.setItem('quickScanTargetId', activeTarget.id);
   localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.IDLE);
+  debugTrace("localStorage initialized: quickScanTargetId=" + activeTarget.id + ", quickScanCurrentStep=" + QUICK_SCAN_STEPS.IDLE);
   
   try {
     const steps = getQuickScanSteps();
@@ -213,6 +223,7 @@ const startQuickScan = async (
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.GAU);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.GAU);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.GAU);
       setIsGauScanning(true);
       
       const domain = activeTarget.scope_target.replace('*.', '');
@@ -253,170 +264,130 @@ const startQuickScan = async (
       setMostRecentGauScan(placeholderScan);
       setMostRecentGauScanStatus('pending');
       
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      // Use the waitForScanCompletion function instead of custom polling
+      const gauScanResult = await waitForScanCompletion(
+        'gau',
+        activeTarget.id,
+        setIsGauScanning,
+        setMostRecentGauScanStatus
+      );
       
-      let isGauComplete = false;
-      let gauAttempts = 0;
-      const maxGauAttempts = 60; // 5 minute timeout
-              
-      while (!isGauComplete && gauAttempts < maxGauAttempts) {
-        gauAttempts++;
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-                  
-        try {
-          const statusResponse = await fetch(
-            `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${activeTarget.id}/scans/gau`
-          );
-          
-          if (!statusResponse.ok) {
-            console.error(`Failed to fetch GAU scan status: ${statusResponse.status} ${statusResponse.statusText}`);
-            continue; // Try again
+      debugTrace("GAU scan and processing completed");
+      
+      // Explicitly fetch the updated GAU scan results to refresh the UI
+      try {
+        const gauScansResponse = await fetch(
+          `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${activeTarget.id}/scans/gau`
+        );
+        
+        if (gauScansResponse.ok) {
+          const gauScans = await gauScansResponse.json();
+          if (gauScans && gauScans.length > 0) {
+            // Find most recent scan
+            const mostRecentScan = gauScans.reduce((latest, scan) => {
+              const scanDate = new Date(scan.created_at);
+              return scanDate > new Date(latest.created_at) ? scan : latest;
+            }, gauScans[0]);
+            
+            // Update state with the most recent scan which has the complete results
+            setMostRecentGauScan(mostRecentScan);
+            setGauScans(gauScans);
+            debugTrace(`Updated GAU scan results with latest data`);
           }
-          
-          const scans = await statusResponse.json();
-          
-          if (!scans || !Array.isArray(scans) || scans.length === 0) {
-            continue;
-          }
-          
-          const mostRecentScan = scans.reduce((latest, scan) => {
-            const scanDate = new Date(scan.created_at);
-            return scanDate > new Date(latest.created_at) ? scan : latest;
-          }, scans[0]);
-          
-          setMostRecentGauScan(mostRecentScan);
-          setMostRecentGauScanStatus(mostRecentScan.status || 'pending');
-          
-          if (mostRecentScan.status === 'completed' || 
-              mostRecentScan.status === 'success' || 
-              mostRecentScan.status === 'failed') {
-            isGauComplete = true;
-          }
-        } catch (pollError) {
         }
+      } catch (updateError) {
+        debugTrace(`Error updating GAU scan results: ${updateError.message}`);
       }
-
       
-      setIsGauScanning(false);
-
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
       console.error(`Error in GAU scan: ${error.message}`);
+      debugTrace(`GAU scan encountered an error but continuing with next step: ${error.message}`);
+      // Don't return or throw - allow scan to continue to next step
     }
     
+    debugTrace("Moving to CTL scan...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.CTL);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.CTL);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.CTL);
       setIsCTLScanning(true);
       
-      const domain = activeTarget.scope_target.replace('*.', '');
-      
-      const scanResponse = await fetch(
-        `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/ctl/run`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            fqdn: domain
-          }),
-        }
-      );
-      
-      if (!scanResponse.ok) {
-        console.error(`Failed to start CTL scan: ${scanResponse.status} ${scanResponse.statusText}`);
-        throw new Error(`Failed to start CTL scan: ${scanResponse.status} ${scanResponse.statusText}`);
-      }
-      
-      const scanData = await scanResponse.json();
-      const placeholderScan = {
-        id: scanData.scan_id,
-        status: 'pending',
-        created_at: new Date().toISOString()
-      };
-      setMostRecentCTLScan(placeholderScan);
-      setMostRecentCTLScanStatus('pending');
-      
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      
-      let isCtlComplete = false;
-      let ctlAttempts = 0;
-      const maxCtlAttempts = 60; // 5 minute timeout
-      
-      while (!isCtlComplete && ctlAttempts < maxCtlAttempts) {
-        ctlAttempts++;
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      try {
+        await initiateCTLScan(
+          activeTarget,
+          monitorCTLScanStatus,
+          setIsCTLScanning,
+          setCTLScans,
+          setMostRecentCTLScanStatus,
+          setMostRecentCTLScan
+        );
         
+        debugTrace("CTL scan initiated, waiting for completion...");
+        await waitForScanCompletion(
+          'ctl',
+          activeTarget.id,
+          setIsCTLScanning,
+          setMostRecentCTLScanStatus
+        );
         
-        try {
-          const statusResponse = await fetch(
-            `${process.env.REACT_APP_SERVER_PROTOCOL}://${process.env.REACT_APP_SERVER_IP}:${process.env.REACT_APP_SERVER_PORT}/scopetarget/${activeTarget.id}/scans/ctl`
-          );
-          
-          if (!statusResponse.ok) {
-            console.error(`Failed to fetch CTL scan status: ${statusResponse.status} ${statusResponse.statusText}`);
-            continue; // Try again
-          }
-          
-          const scans = await statusResponse.json();
-          
-          if (!scans || !Array.isArray(scans) || scans.length === 0) {
-            continue;
-          }
-          
-          const mostRecentScan = scans.reduce((latest, scan) => {
-            const scanDate = new Date(scan.created_at);
-            return scanDate > new Date(latest.created_at) ? scan : latest;
-          }, scans[0]);
-          
-          setMostRecentCTLScan(mostRecentScan);
-          setMostRecentCTLScanStatus(mostRecentScan.status || 'pending');
-          
-          if (mostRecentScan.status === 'completed' || 
-              mostRecentScan.status === 'success' || 
-              mostRecentScan.status === 'failed') {
-            isCtlComplete = true;
-          }
-        } catch (pollError) {
-        }
+        debugTrace("CTL scan completed successfully");
+      } catch (innerError) {
+        debugTrace(`Error during CTL scan execution: ${innerError.message}`);
+        // Ensure we set scanning to false if there was an error
+        setIsCTLScanning(false);
       }
-      
-      setIsCTLScanning(false);
       
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      console.error(`Error in CTL scan: ${error.message}`);
+      console.error(`Error in CTL scan outer block: ${error.message}`);
+      debugTrace(`CTL scan outer block error but continuing with next step: ${error.message}`);
+      // Don't return or throw - allow scan to continue to next step
     }
     
+    debugTrace("Moving to Subfinder scan...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.SUBFINDER);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.SUBFINDER);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.SUBFINDER);
       
-      await initiateSubfinderScan(
-        activeTarget,
-        monitorSubfinderScanStatus,
-        setIsSubfinderScanning,
-        setSubfinderScans,
-        setMostRecentSubfinderScanStatus,
-        setMostRecentSubfinderScan
-      );
-      
-      await waitForScanCompletion(
-        'subfinder',
-        activeTarget.id,
-        setIsSubfinderScanning,
-        setMostRecentSubfinderScanStatus
-      );
+      try {
+        await initiateSubfinderScan(
+          activeTarget,
+          monitorSubfinderScanStatus,
+          setIsSubfinderScanning,
+          setSubfinderScans,
+          setMostRecentSubfinderScanStatus,
+          setMostRecentSubfinderScan
+        );
+        
+        debugTrace("Subfinder scan initiated, waiting for completion...");
+        await waitForScanCompletion(
+          'subfinder',
+          activeTarget.id,
+          setIsSubfinderScanning,
+          setMostRecentSubfinderScanStatus
+        );
+        
+        debugTrace("Subfinder scan completed successfully");
+      } catch (innerError) {
+        debugTrace(`Error during Subfinder scan execution: ${innerError.message}`);
+        // Ensure we set scanning to false if there was an error
+        setIsSubfinderScanning(false);
+      }
       
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      console.error(`Error in Subfinder scan: ${error.message}`);
+      console.error(`Error in Subfinder scan outer block: ${error.message}`);
+      debugTrace(`Subfinder scan encountered an error but continuing with next step: ${error.message}`);
+      // Don't return or throw - allow scan to continue to next step
     }
     
+    debugTrace("Moving to Consolidate step...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.CONSOLIDATE);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.CONSOLIDATE);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.CONSOLIDATE);
       setIsConsolidating(true);
       
       await handleConsolidate();
@@ -425,90 +396,129 @@ const startQuickScan = async (
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
       console.error(`Error in Consolidation: ${error.message}`);
+      debugTrace(`Consolidation encountered an error but continuing with next step: ${error.message}`);
+      setIsConsolidating(false); // Ensure this is set to false even on error
     }
     
+    debugTrace("Moving to HTTPX scan...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.HTTPX);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.HTTPX);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.HTTPX);
       
-      await initiateHttpxScan(
-        activeTarget,
-        monitorHttpxScanStatus,
-        setIsHttpxScanning,
-        setHttpxScans,
-        setMostRecentHttpxScanStatus,
-        setMostRecentHttpxScan
-      );
-      
-      await waitForScanCompletion(
-        'httpx',
-        activeTarget.id,
-        setIsHttpxScanning,
-        setMostRecentHttpxScanStatus
-      );
+      try {
+        await initiateHttpxScan(
+          activeTarget,
+          monitorHttpxScanStatus,
+          setIsHttpxScanning,
+          setHttpxScans,
+          setMostRecentHttpxScanStatus,
+          setMostRecentHttpxScan
+        );
+        
+        debugTrace("HTTPX scan initiated, waiting for completion...");
+        await waitForScanCompletion(
+          'httpx',
+          activeTarget.id,
+          setIsHttpxScanning,
+          setMostRecentHttpxScanStatus
+        );
+        
+        debugTrace("HTTPX scan completed successfully");
+      } catch (innerError) {
+        debugTrace(`Error during HTTPX scan execution: ${innerError.message}`);
+        // Ensure we set scanning to false if there was an error
+        setIsHttpxScanning(false);
+      }
       
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      console.error(`Error in HTTPX scan: ${error.message}`);
+      console.error(`Error in HTTPX scan outer block: ${error.message}`);
+      debugTrace(`HTTPX scan encountered an error but continuing with next step: ${error.message}`);
     }
     
+    debugTrace("Moving to Nuclei Screenshot scan...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.NUCLEI_SCREENSHOT);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.NUCLEI_SCREENSHOT);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.NUCLEI_SCREENSHOT);
       
-      await initiateNucleiScreenshotScan(
-        activeTarget,
-        monitorNucleiScreenshotScanStatus,
-        setIsNucleiScreenshotScanning,
-        setNucleiScreenshotScans,
-        setMostRecentNucleiScreenshotScanStatus,
-        setMostRecentNucleiScreenshotScan
-      );
-      
-      await waitForScanCompletion(
-        'nuclei-screenshot',
-        activeTarget.id,
-        setIsNucleiScreenshotScanning,
-        setMostRecentNucleiScreenshotScanStatus
-      );
+      try {
+        await initiateNucleiScreenshotScan(
+          activeTarget,
+          monitorNucleiScreenshotScanStatus,
+          setIsNucleiScreenshotScanning,
+          setNucleiScreenshotScans,
+          setMostRecentNucleiScreenshotScanStatus,
+          setMostRecentNucleiScreenshotScan
+        );
+        
+        debugTrace("Nuclei Screenshot scan initiated, waiting for completion...");
+        await waitForScanCompletion(
+          'nuclei-screenshot',
+          activeTarget.id,
+          setIsNucleiScreenshotScanning,
+          setMostRecentNucleiScreenshotScanStatus
+        );
+        
+        debugTrace("Nuclei Screenshot scan completed successfully");
+      } catch (innerError) {
+        debugTrace(`Error during Nuclei Screenshot scan execution: ${innerError.message}`);
+        setIsNucleiScreenshotScanning(false);
+      }
       
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      console.error(`Error in Nuclei Screenshot scan: ${error.message}`);
+      console.error(`Error in Nuclei Screenshot scan outer block: ${error.message}`);
+      debugTrace(`Nuclei Screenshot scan encountered an error but continuing with next step: ${error.message}`);
     }
     
+    debugTrace("Moving to Metadata scan...");
     try {
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.METADATA);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.METADATA);
+      debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.METADATA);
       
-      await initiateMetaDataScan(
-        activeTarget,
-        monitorMetaDataScanStatus,
-        setIsMetaDataScanning,
-        setMetaDataScans,
-        setMostRecentMetaDataScanStatus,
-        setMostRecentMetaDataScan
-      );
-      
-      await waitForScanCompletion(
-        'metadata',
-        activeTarget.id,
-        setIsMetaDataScanning,
-        setMostRecentMetaDataScanStatus
-      );
+      try {
+        await initiateMetaDataScan(
+          activeTarget,
+          monitorMetaDataScanStatus,
+          setIsMetaDataScanning,
+          setMetaDataScans,
+          setMostRecentMetaDataScanStatus,
+          setMostRecentMetaDataScan
+        );
+        
+        debugTrace("Metadata scan initiated, waiting for completion...");
+        await waitForScanCompletion(
+          'metadata',
+          activeTarget.id,
+          setIsMetaDataScanning,
+          setMostRecentMetaDataScanStatus
+        );
+        
+        debugTrace("Metadata scan completed successfully");
+      } catch (innerError) {
+        debugTrace(`Error during Metadata scan execution: ${innerError.message}`);
+        setIsMetaDataScanning(false);
+      }
       
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      console.error(`Error in Metadata scan: ${error.message}`);
+      console.error(`Error in Metadata scan outer block: ${error.message}`);
+      debugTrace(`Metadata scan encountered an error but continuing to finish quick scan: ${error.message}`);
     }
     
-    
+    debugTrace("All quick scan steps completed");
   } catch (error) {
     debugTrace(`ERROR during manual Quick Scan: ${error.message}`);
   } finally {
+    // Only clear the localStorage at the very end when we're completely done
+    debugTrace("Quick Scan session finalizing - setting state to COMPLETED");
     setIsQuickScanning(false);
     setQuickScanCurrentStep(QUICK_SCAN_STEPS.COMPLETED);
     localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.COMPLETED);
+    debugTrace("localStorage updated: quickScanCurrentStep=" + QUICK_SCAN_STEPS.COMPLETED);
     debugTrace("Quick Scan session ended");
   }
 };
