@@ -173,7 +173,12 @@ const startQuickScan = async (
   setSubfinderScans,
   setHttpxScans,
   setNucleiScreenshotScans,
-  setMetaDataScans
+  setMetaDataScans,
+  monitorSubfinderScanStatus,
+  monitorHttpxScanStatus,
+  monitorNucleiScreenshotScanStatus,
+  monitorMetaDataScanStatus,
+  initiateMetaDataScan
 ) => {
   if (!activeTarget) return;
   
@@ -390,7 +395,7 @@ const startQuickScan = async (
       
       await initiateSubfinderScan(
         activeTarget,
-        null,
+        monitorSubfinderScanStatus,
         setIsSubfinderScanning,
         setSubfinderScans,
         setMostRecentSubfinderScanStatus,
@@ -428,7 +433,7 @@ const startQuickScan = async (
       
       await initiateHttpxScan(
         activeTarget,
-        null,
+        monitorHttpxScanStatus,
         setIsHttpxScanning,
         setHttpxScans,
         setMostRecentHttpxScanStatus,
@@ -453,7 +458,7 @@ const startQuickScan = async (
       
       await initiateNucleiScreenshotScan(
         activeTarget,
-        null,
+        monitorNucleiScreenshotScanStatus,
         setIsNucleiScreenshotScanning,
         setNucleiScreenshotScans,
         setMostRecentNucleiScreenshotScanStatus,
@@ -476,7 +481,14 @@ const startQuickScan = async (
       setQuickScanCurrentStep(QUICK_SCAN_STEPS.METADATA);
       localStorage.setItem('quickScanCurrentStep', QUICK_SCAN_STEPS.METADATA);
       
-      await startMetaDataScan();
+      await initiateMetaDataScan(
+        activeTarget,
+        monitorMetaDataScanStatus,
+        setIsMetaDataScanning,
+        setMetaDataScans,
+        setMostRecentMetaDataScanStatus,
+        setMostRecentMetaDataScan
+      );
       
       await waitForScanCompletion(
         'metadata',

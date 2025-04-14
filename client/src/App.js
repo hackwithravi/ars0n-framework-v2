@@ -15,18 +15,18 @@ import Ars0nFrameworkHeader from './components/ars0nFrameworkHeader.js';
 import ManageScopeTargets from './components/manageScopeTargets.js';
 import fetchAmassScans from './utils/fetchAmassScans.js';
 import {
-  Container,
-  Fade,
-  Card,
-  Row,
-  Col,
-  Button,
-  ListGroup,
-  Accordion,
-  Modal,
-  Table,
-  Toast,
-  ToastContainer,
+    Container,
+    Fade,
+    Card,
+    Row,
+    Col,
+    Button,
+    ListGroup,
+    Accordion,
+    Modal,
+    Table,
+    Toast,
+    ToastContainer,
 } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -34,14 +34,14 @@ import initiateAmassScan from './utils/initiateAmassScan';
 import monitorScanStatus from './utils/monitorScanStatus';
 import validateInput from './utils/validateInput.js';
 import {
-  getTypeIcon,
-  getLastScanDate,
-  getLatestScanStatus,
-  getLatestScanTime,
-  getLatestScanId,
-  getExecutionTime,
-  getResultLength,
-  copyToClipboard,
+    getTypeIcon,
+    getLastScanDate,
+    getLatestScanStatus,
+    getLatestScanTime,
+    getLatestScanId,
+    getExecutionTime,
+    getResultLength,
+    copyToClipboard,
 } from './utils/miscUtils.js';
 import { MdCopyAll, MdCheckCircle } from 'react-icons/md';
 import initiateHttpxScan from './utils/initiateHttpxScan';
@@ -1317,7 +1317,12 @@ function App() {
       setSubfinderScans,
       setHttpxScans,
       setNucleiScreenshotScans,
-      setMetaDataScans
+      setMetaDataScans,
+      monitorSubfinderScanStatus,
+      monitorHttpxScanStatus,
+      monitorNucleiScreenshotScanStatus,
+      monitorMetaDataScanStatus,
+      initiateMetaDataScan
     );
   };
 
